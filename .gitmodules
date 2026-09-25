@@ -1,0 +1,3 @@
+[submodule "native/vendor/tree-sitter"]
+	path = native/vendor/tree-sitter
+	url = https://github.com/tree-sitter/tree-sitter

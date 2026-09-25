@@ -56,6 +56,13 @@ public class CppLinter {
      * @param liveText    live (unsaved) text of the current tab
      */
     public synchronized void scheduleCheck(Sketch sketch, int currentTab, String liveText) {
+        // Fast tree-sitter pass -- fires immediately, no debounce
+        if (Ts.isAvailable()) {
+            List<Problem> tsProblems = TsParser.check(liveText, currentTab);
+            if (!tsProblems.isEmpty()) {
+                javax.swing.SwingUtilities.invokeLater(() -> consumer.accept(tsProblems));
+            }
+        }
         if (pending != null) pending.cancel(false);
         pending = scheduler.schedule(() -> runCheck(sketch, currentTab, liveText),
                                      DEBOUNCE_MS, TimeUnit.MILLISECONDS);

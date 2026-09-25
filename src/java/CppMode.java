@@ -9,9 +9,13 @@ import processing.app.ui.EditorState;
 public class CppMode extends Mode {
   public CppMode(Base base, File folder) {
     super(base, folder);
+    Ts.init(folder);  // load tree-sitter native lib
     // Precompile Processing.cpp in background so first Run is fast
     new Thread(() -> warmupCache(), "cppmode-warmup").start();
   }
+
+  private volatile Process _warmupProc = null;
+  public void cancelWarmup() { Process p = _warmupProc; if (p != null) p.destroyForcibly(); }
 
   private void warmupCache() {
     try {
@@ -49,7 +53,7 @@ public class CppMode extends Mode {
       cmd.add("-c"); cmd.add(processingCpp.getAbsolutePath());
       cmd.add("-o"); cmd.add(processingO.getAbsolutePath());
 
-      CppBuild.toolchainEnv(new ProcessBuilder(cmd)).redirectErrorStream(true).start().waitFor();
+      _warmupProc = CppBuild.toolchainEnv(new ProcessBuilder(cmd)).redirectErrorStream(true).start(); _warmupProc.waitFor(); _warmupProc = null;
 
       // Also precompile Processing_defaults.cpp
       File defaultsO   = new File(cacheDir, "Processing_defaults.o");
@@ -62,7 +66,7 @@ public class CppMode extends Mode {
         cmd2.add("-DPROCESSING_HAS_STB_IMAGE");
         cmd2.add("-c"); cmd2.add(defaultsCpp.getAbsolutePath());
         cmd2.add("-o"); cmd2.add(defaultsO.getAbsolutePath());
-        CppBuild.toolchainEnv(new ProcessBuilder(cmd2)).redirectErrorStream(true).start().waitFor();
+        _warmupProc = CppBuild.toolchainEnv(new ProcessBuilder(cmd2)).redirectErrorStream(true).start(); _warmupProc.waitFor(); _warmupProc = null;
       }
     } catch (Exception ignored) {}
   }
