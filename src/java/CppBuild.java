@@ -8,7 +8,24 @@ import java.util.regex.*;
 import processing.app.RunnerListener;
 import processing.app.Sketch;
 
-
+/**
+ * CppBuild — compiles a Processing sketch to a native binary.
+ *
+ * <h2>New pipeline (tree-sitter)</h2>
+ * <pre>
+ *   1. Concatenate all tabs into one UTF-8 string
+ *   2. Sanitise (strip BOM, normalise line endings, strip raw-string digit-seps)
+ *   3. TsEngine.parse()        → concrete syntax tree
+ *   4. SketchAnalyzer.analyse() → SketchAnalysis (what goes where)
+ *   5. SketchEmitter.emit()    → final C++ source string
+ *   6. Write to buildDir/Sketch_run.cpp
+ *   7. g++ compile + link
+ * </pre>
+ *
+ * <p>The old regex-based {@code prepareCode()} / {@code Parser} / AST passes
+ * are replaced by steps 3-5.  The g++ invocation (step 7) and all platform
+ * detection / install-wizard logic is retained.
+ */
 public class CppBuild {
   // cppmode-issue6: on Windows, put the compiler's own bin folder first on PATH. Its helpers
   // (cc1plus, as, ld) sit in folders without DLLs, so without this Windows loads the
@@ -32,218 +49,20 @@ public class CppBuild {
   }
 
 
+  // ── Fields ────────────────────────────────────────────────────────────────
+
   private final Sketch sketch;
   private final CppMode mode;
   final File buildDir;
   private final File runtimeDir;
 
+  /** Number of generated header lines before user code (for error mapping). */
   public int headerLineCount = 0;
 
-  private static final Pattern ERR_LINE = Pattern.compile(
-      "(?:Sketch_run\\.cpp|sketch\\.pde):(\\d+):\\d+:\\s+error:");
+  /** 1-based line in the combined source where each tab starts. */
+  private int[] tabStartLines = {1};
 
-  private static final Pattern FUNC_DEF = Pattern.compile(
-      "^[ \\t]*(void|float|int|double|bool|char|long|color|auto|PVector|PImage\\s*\\*?|std::string)" +
-      "\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^)]*)\\)\\s*\\{",
-      Pattern.MULTILINE);
-
-  private static final Set<String> LIFECYCLE = new HashSet<>(Arrays.asList(
-      "setup", "draw", "settings",
-      "mousePressed", "mouseReleased", "mouseClicked",
-      "mouseMoved", "mouseDragged", "mouseWheel",
-      "keyPressed", "keyReleased", "keyTyped",
-      "windowMoved", "windowResized"));
-
-  private static final String[] RESERVED = {
-      "rand", "time", "exit", "abs", "min", "max", "log", "exp", "pow"
-  };
-
-  // Processing.h defines these class/struct names in namespace Processing.
-  // If the user also defines them, we skip the user's version to avoid
-  // "redefinition" errors -- the engine's definition takes precedence.
-  // Processing API names that are dangerous as user variable names (Problem 5.2/6.1)
-  // Processing API names confirmed to cause crashes/errors when used as variable names
-  // Kept minimal to avoid false positives -- only add names with confirmed crash reports
-  private static final java.util.Set<String> PROCESSING_API_NAMES = java.util.Set.of(
-      "color"   // confirmed: Processing::color typedef causes operator++ crash
-  );
-  private static final java.util.Set<String> RESERVED_TYPES = java.util.Set.of(
-      "Array", "ArrayList", "IntList", "FloatList", "StringList",
-      "PVector", "PImage", "PGraphics", "PShape", "PFont", "PShader",
-      "Table", "TableRow", "XML", "JSONValue", "color",
-      "IntDict", "FloatDict", "StringDict",
-      "BufferedReader", "PrintWriter"
-  );
-
-  /** No-arg constructor for allocate()-based CLI usage -- fields set via reflection. */
-  @SuppressWarnings("unused")
-  private CppBuild() {
-    this.sketch = null;
-    this.mode = null;
-    this.buildDir = null;
-    this.runtimeDir = null;
-  }
-
-  /**
-   * Result of the pre-AST string-transform pipeline.
-   * code: transformed sketch text with __has_include blocks removed.
-   * hasIncludeBlocks: extracted blocks to emit at file scope, keyed by original line index.
-   */
-  public static final class PreparedCode {
-    public final String code;
-    public final java.util.Map<Integer, String> hasIncludeBlocks;
-    public PreparedCode(String code, java.util.Map<Integer, String> hasIncludeBlocks) {
-      this.code = code;
-      this.hasIncludeBlocks = hasIncludeBlocks;
-    }
-  }
-
-  /**
-   * Single source of truth for the pre-AST string-transform pipeline.
-   * Used by both writeSketchImpl() and CppCLI.
-   */
-  public static PreparedCode prepareCode(String rawCode) throws Exception {
-    CppBuild b = new CppBuild();
-    String code = b.sanitize(rawCode);
-    code = b.removeUserIncludes(code);
-    code = code.replaceAll("(\\bfinal_suspend\\s*\\([^)]*\\))(\\s*\\{)", "$1 noexcept$2");
-    code = code.replaceAll("(\\binitial_suspend\\s*\\([^)]*\\))(\\s*\\{)", "$1 noexcept$2");
-    code = code.replaceAll("\\btranslate\\s*\\(\\s*0+\\.?0*f?\\s*,\\s*0+\\.?0*f?\\s*\\)\\s*;", "");
-    code = code.replaceAll("\\btranslate\\s*\\(\\s*0+\\.?0*f?\\s*,\\s*0+\\.?0*f?\\s*,\\s*0+\\.?0*f?\\s*\\)\\s*;", "");
-    code = b.stripRawStringLiterals(code);
-    code = code.replaceAll("(?<=[0-9a-fA-FxXbB])'(?=[0-9a-fA-F])", "");
-    code = b.javaToC(code);
-    code = b.stripNamespaceProcessing(code);
-    // Extract #if __has_include blocks before g++ -E so they survive intact.
-    String[] rawLines = code.split("\n", -1);
-    java.util.Map<Integer, String> hasIncludeBlocks = new java.util.LinkedHashMap<>();
-    {
-      StringBuilder stripped = new StringBuilder();
-      int depth = 0; int blockStart = -1; StringBuilder block = new StringBuilder();
-      for (int li = 0; li < rawLines.length; li++) {
-        String t = rawLines[li].strip();
-        boolean isHI = t.startsWith("#if __has_include") || t.startsWith("#elif __has_include");
-        boolean isIf = !isHI && (t.startsWith("#if ") || t.startsWith("#ifdef ") || t.startsWith("#ifndef "));
-        boolean isEndif = t.equals("#endif");
-        if (isHI && depth == 0) {
-          blockStart = li; block = new StringBuilder();
-          block.append(rawLines[li]).append("\n"); depth = 1; stripped.append("\n");
-        } else if (depth > 0) {
-          if (isHI || isIf) depth++;
-          block.append(rawLines[li]).append("\n");
-          if (isEndif) { depth--; if (depth == 0) { hasIncludeBlocks.put(blockStart, block.toString()); blockStart = -1; } }
-          stripped.append("\n");
-        } else { stripped.append(rawLines[li]).append("\n"); }
-      }
-      code = stripped.toString();
-    }
-    code = b.preprocessMacros(code);
-    return new PreparedCode(code, hasIncludeBlocks);
-  }
-
-  /** Backwards-compatible wrapper. */
-  public static String translateCode(String code) throws Exception {
-    return prepareCode(code).code;
-  }
-
-  /**
-   * Decides where a PreprocessorLine node should be emitted:
-   * true  → file scope (preNs, before namespace Processing)
-   * false → namespace body (out, inside namespace Processing)
-   *
-   * Used by both writeSketchImpl() and CppCLI.runPipeline() to keep
-   * routing behaviour identical without duplicating the if/else chain.
-   */
-  public static boolean isFileScopePreprocessorLine(PreprocessorLine pl) {
-    String rt = pl.rawText().trim();
-    return rt.startsWith("#include")
-        || rt.startsWith("#if") || rt.startsWith("#else")
-        || rt.startsWith("#elif") || rt.startsWith("#endif")
-        || rt.startsWith("#define") || rt.startsWith("#undef")
-        || rt.startsWith("#pragma")
-        || (rt.startsWith("using ") && !rt.contains("=") && !rt.contains("namespace"));
-  }
-
-  /**
-   * Result of the shared AST pipeline (steps 1-7 + auto-hoisting).
-   * Both writeSketchImpl() and CppCLI.runPipeline() run these same steps;
-   * they differ only in how they assemble the final output from the results.
-   */
-  public static final class AstPipelineResult {
-    public final EnumScopeExtractor.Result enumResult;
-    public final ClassHoister.Result classResult;
-    public final List<TypeDef> finalClasses;
-    public final ArrayHoister.Result arrayResult;
-    public final DependencyHoister.Result depResult;
-    public final List<FunctionDecl> forwardDecls;
-    public final List<TopLevelItem> autoHoisted;
-    public final List<TopLevelItem> filteredRest;
-    public AstPipelineResult(
-        EnumScopeExtractor.Result enumResult,
-        ClassHoister.Result classResult,
-        List<TypeDef> finalClasses,
-        ArrayHoister.Result arrayResult,
-        DependencyHoister.Result depResult,
-        List<FunctionDecl> forwardDecls,
-        List<TopLevelItem> autoHoisted,
-        List<TopLevelItem> filteredRest) {
-      this.enumResult   = enumResult;
-      this.classResult  = classResult;
-      this.finalClasses = finalClasses;
-      this.arrayResult  = arrayResult;
-      this.depResult    = depResult;
-      this.forwardDecls = forwardDecls;
-      this.autoHoisted  = autoHoisted;
-      this.filteredRest = filteredRest;
-    }
-  }
-
-  /**
-   * Shared AST pipeline: parse → enum extraction → lifecycle rewrite →
-   * class hoisting → PSketch injection → array hoisting → dependency
-   * hoisting → forward decls → auto-hoisting.
-   *
-   * Both writeSketchImpl() and CppCLI.runPipeline() call this and then
-   * assemble their own output format from the result.
-   */
-  public static AstPipelineResult runAstPipeline(CompilationUnit cu) {
-    EnumScopeExtractor.Result enumResult = EnumScopeExtractor.extract(cu.items());
-    List<TopLevelItem> afterLifecycle = LifecycleRewriter.rewrite(enumResult.rest, LIFECYCLE_METHOD_NAMES);
-    ClassHoister.Result classResult = ClassHoister.hoist(afterLifecycle);
-    List<PSketchInjector.Result> injectedClasses = PSketchInjector.injectAll(classResult.hoistedClasses);
-    List<TypeDef> finalClasses = injectedClasses.stream().map(PSketchInjector.Result::typeDef).toList();
-    ArrayHoister.Result arrayResult = ArrayHoister.hoist(classResult.rest);
-    DependencyHoister.Result depResult = DependencyHoister.hoist(arrayResult.rest, finalClasses, LIFECYCLE_METHOD_NAMES);
-    List<FunctionDecl> forwardDecls = ForwardDeclGenerator.generate(depResult.hoistedFunctions);
-
-    // Auto-hoist items that cannot legally be struct members.
-    List<TopLevelItem> autoHoisted  = new ArrayList<>();
-    List<TopLevelItem> filteredRest = new ArrayList<>();
-    for (TopLevelItem item : depResult.rest) {
-      if (item instanceof VariableDecl vd
-              && vd.type() instanceof NamedType nt
-              && (nt.baseName().equals("auto") || nt.baseName().startsWith("std::function"))) {
-        autoHoisted.add(item);
-      } else if (item instanceof FunctionDecl fd
-              && fd.name().startsWith("operator")
-              && fd.params().size() >= 2) {
-        autoHoisted.add(item);
-      } else if (item instanceof FunctionDecl fdce && fdce.isConstexpr()) {
-        autoHoisted.add(item);
-      } else if (item instanceof VariableDecl vdq && vdq.name().contains("::")) {
-        autoHoisted.add(item);
-      } else if (item instanceof FunctionDecl fdoc && fdoc.name().contains("::")) {
-        autoHoisted.add(item);
-      } else {
-        filteredRest.add(item);
-      }
-    }
-    return new AstPipelineResult(enumResult, classResult, finalClasses,
-        arrayResult, depResult, forwardDecls, autoHoisted, filteredRest);
-  }
-
-
-
+  // ── Constructor ───────────────────────────────────────────────────────────
 
   public CppBuild(Sketch sketch, CppMode mode) {
     this.sketch     = sketch;
@@ -252,275 +71,18 @@ public class CppBuild {
     this.runtimeDir = mode != null ? mode.getRuntimeDir() : null;
   }
 
-  private void showGppDialog(String html, String btn, String url,
-                              RunnerListener listener) throws Exception {
-    Object[] opts = { btn, "Cancel" };
-    int ch = javax.swing.JOptionPane.showOptionDialog(null,
-      new javax.swing.JLabel(html), "C++ Compiler Not Found",
-      javax.swing.JOptionPane.YES_NO_OPTION,
-      javax.swing.JOptionPane.ERROR_MESSAGE, null, opts, opts[0]);
-    if (ch == 0) {
-      try { java.awt.Desktop.getDesktop().browse(new java.net.URI(url)); }
-      catch (Exception ignored) {}
-    }
-    listener.statusError("g++ not found â see dialog for install instructions");
-    throw new Exception("g++ not found");
-  }
+  // ── Public pipeline entry points ──────────────────────────────────────────
 
-  private void autoInstallWindows(RunnerListener listener) {
-    // Delegate to InstallWizard which handles portable gcc download in-app.
-    // GLFW and GLEW are bundled in libs/windows-x64/ -- no MSYS2 needed.
-    try {
-      InstallWizard.run(listener);
-    } catch (InstallWizard.CancelledByUser ignored) {
-    } catch (Exception e) {
-      listener.statusError("Auto-install failed: " + e.getMessage());
-    }
-  }
-
-
-  private void autoInstallLinux(String[] pmCmd, RunnerListener listener) {
-    // Build a shell script that runs the package manager with sudo
-    // and opens in a visible terminal so the user can enter their password
-    String cmdStr = "sudo " + String.join(" ", pmCmd);
-
-    // Try common terminal emulators
-    String[] terminals = {
-      "x-terminal-emulator", "gnome-terminal", "konsole",
-      "xfce4-terminal", "mate-terminal", "xterm", "alacritty",
-      "kitty", "tilix", "terminator"
-    };
-
-    new Thread(() -> {
-      try {
-        // Write a small shell script
-        java.io.File tmp = java.io.File.createTempFile("cpp_install_", ".sh");
-        tmp.deleteOnExit();
-        tmp.setExecutable(true);
-        try (java.io.PrintWriter pw = new java.io.PrintWriter(tmp)) {
-          pw.println("#!/bin/bash");
-          pw.println("echo '=== C++ Mode Auto-Installer ==='");
-          pw.println("echo ''");
-          pw.println("echo 'Installing g++, GLFW, GLEW...'");
-          pw.println(cmdStr);
-          pw.println("echo ''");
-          pw.println("echo '============================================'");
-          pw.println("echo 'Done! Please restart Processing4.'");
-          pw.println("echo '============================================'");
-          pw.println("read -p 'Press Enter to close...'");
-        }
-
-        boolean launched = false;
-        for (String term : terminals) {
-          try {
-            Process which = Runtime.getRuntime().exec(new String[]{"which", term});
-            if (which.waitFor() != 0) continue;
-            ProcessBuilder pb2;
-            if (term.equals("gnome-terminal")) {
-              pb2 = toolchainEnv(new ProcessBuilder(term, "--", "bash", tmp.getAbsolutePath()));
-            } else if (term.equals("konsole")) {
-              pb2 = toolchainEnv(new ProcessBuilder(term, "-e", "bash", tmp.getAbsolutePath()));
-            } else if (term.equals("kitty") || term.equals("alacritty")) {
-              pb2 = toolchainEnv(new ProcessBuilder(term, "-e", "bash", tmp.getAbsolutePath()));
-            } else {
-              pb2 = toolchainEnv(new ProcessBuilder(term, "-e", "bash " + tmp.getAbsolutePath()));
-            }
-            pb2.start();
-            launched = true;
-            break;
-          } catch (Exception ignored) {}
-        }
-
-        if (!launched) {
-          // Fallback: try pkexec (graphical sudo) without terminal
-          try {
-            toolchainEnv(new ProcessBuilder("pkexec", "bash", tmp.getAbsolutePath())).start();
-            launched = true;
-          } catch (Exception ignored) {}
-        }
-
-        if (launched) {
-          javax.swing.JOptionPane.showMessageDialog(null,
-            new javax.swing.JLabel(
-              "<html><b>Installer launched!</b><br><br>"
-              + "A terminal window is installing g++, GLFW, and GLEW.<br>"
-              + "You may need to enter your password.<br><br>"
-              + "When it says <b>Done!</b>:<br>"
-              + "&nbsp;&nbsp;1. Close the terminal<br>"
-              + "&nbsp;&nbsp;2. <b>Restart Processing4</b></html>"),
-            "Installing...", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-        } else {
-          javax.swing.JOptionPane.showMessageDialog(null,
-            new javax.swing.JLabel(
-              "<html><b>Could not launch terminal.</b><br><br>"
-              + "Please run manually:<br>"
-              + "&nbsp;&nbsp;<code>" + cmdStr + "</code><br><br>"
-              + "Then restart Processing4.</html>"),
-            "Manual Install Required", javax.swing.JOptionPane.WARNING_MESSAGE);
-        }
-      } catch (Exception e) { listener.statusError("Error: " + e.getMessage()); }
-    }).start();
-  }
-
-  private void checkGppAvailable(RunnerListener listener) throws Exception {
-    String os = System.getProperty("os.name").toLowerCase();
-    boolean isWin = os.contains("win");
-    boolean isMac = os.contains("mac");
-    if (isWin) {
-      for (String p : new String[]{
-          // Portable gcc (downloaded by InstallWizard, no MSYS2 needed)
-          System.getenv("APPDATA") + "\\CppMode\\gcc\\mingw64\\bin\\g++.exe",
-          "C:\\msys64\\mingw64\\bin\\g++.exe",
-          "C:\\msys2\\mingw64\\bin\\g++.exe",
-          System.getProperty("user.home") + "\\msys64\\mingw64\\bin\\g++.exe",
-          "C:\\msys64\\ucrt64\\bin\\g++.exe"})
-        if (new File(p).exists()) return;
-      try {
-        if (Runtime.getRuntime().exec(new String[]{"g++","--version"}).waitFor()==0) return;
-      } catch (Exception ignored) {}
-      // No g++ found anywhere -- run the install wizard.
-      if (InstallWizard.run(listener)) return;
-
-      Object[] opts = { "Install Automatically", "Download MSYS2", "Cancel" };
-      int ch = javax.swing.JOptionPane.showOptionDialog(null,
-        new javax.swing.JLabel(
-          "<html><b>g++ (C++ compiler) not found.</b><br><br>"
-          + "C++ Mode needs g++ to compile sketches.<br>"
-          + "<b>Auto-Install (recommended):</b><br>"
-          + "&nbsp;&nbsp;Click <b>Auto-Install</b> to download g++ automatically.<br><br>"
-          + "<b>Manual:</b><br>"
-          + "&nbsp;&nbsp;Install MSYS2 from https://www.msys2.org and run:<br>"
-          + "&nbsp;&nbsp;<code>pacman -S mingw-w64-x86_64-gcc</code><br>"
-          + "&nbsp;&nbsp;Then restart Processing.</html>"),
-        "C++ Compiler Not Found",
-        javax.swing.JOptionPane.YES_NO_CANCEL_OPTION,
-        javax.swing.JOptionPane.ERROR_MESSAGE,
-        null, opts, opts[0]);
-      if (ch == 0) { autoInstallWindows(listener); return; }
-      else if (ch == 1) {
-        try { java.awt.Desktop.getDesktop().browse(new java.net.URI("https://www.msys2.org")); }
-        catch (Exception ignored) {}
-      }
-      listener.statusError("g++ not found â install MSYS2 to use C++ Mode");
-      throw new Exception("g++ not found");
-    } else {
-      if (isMac) {
-        // On macOS, check both compiler AND libraries before deciding to skip
-        // the wizard. g++ may be present but GLFW/GLEW headers missing.
-        boolean macGpp = false;
-        try { macGpp = Runtime.getRuntime().exec(new String[]{"g++","--version"}).waitFor()==0; }
-        catch (Exception ignored) {}
-        String macArch = System.getProperty("os.arch","").contains("aarch64") ? "arm64" : "x64";
-        File macLibsDir = (runtimeDir != null)
-            ? new File(runtimeDir.getParentFile(), "libs/macos")
-            : new File(System.getProperty("user.home") +
-                "/Library/Application Support/Processing/modes/CppMode/libs/macos");
-        boolean hasBundledGlfw = new File(macLibsDir, "libglfw.3.dylib").exists();
-        boolean hasBundledGlew = new File(macLibsDir, "libGLEW.dylib").exists();
-        boolean macGlfw = hasBundledGlfw
-                       || new File("/opt/homebrew/include/GLFW/glfw3.h").exists()
-                       || new File("/usr/local/include/GLFW/glfw3.h").exists();
-        boolean macGlew = hasBundledGlew
-                       || new File("/opt/homebrew/include/GL/glew.h").exists()
-                       || new File("/usr/local/include/GL/glew.h").exists();
-        if (macGpp && macGlfw && macGlew) return; // everything present, skip wizard
-        // Try the guided installer first (Xcode Command Line Tools, then
-        // GLFW/GLEW via Homebrew if present). A cancel throws and stops
-        // the build; only a genuine failure falls through to the dialog.
-        if (InstallWizard.run(listener)) return;
-
-        showGppDialog(
-          "<html><b>g++ not found.</b><br><br>"
-          + "Install via Homebrew:<br>"
-          + "&nbsp;&nbsp;<code>brew install gcc glfw glew</code><br><br>"
-          + "Click Download Homebrew if not installed.</html>",
-          "Download Homebrew", "https://brew.sh", listener);
-      } else {
-        // Try the guided installer first. A cancel throws and stops the
-        // build; only a genuine failure falls through to the dialog below.
-        if (InstallWizard.run(listener)) return;
-
-        // Detect package manager and offer auto-install
-        String[] aptPkgs    = {"g++", "libglfw3-dev", "libglew-dev"};
-        String[] pacmanPkgs = {"gcc", "glfw-x11", "glew"};
-        String[] dnfPkgs    = {"gcc-c++", "glfw-devel", "glew-devel"};
-        String[] zypperPkgs = {"gcc-c++", "glfw-devel", "glew-devel"};
-        String[] emergePkgs = {"media-libs/glfw", "media-libs/glew"};
-        String[] nixPkgs    = {"gcc", "glfw", "glew"};
-
-        String pm = null;
-        String[] pmCmd = null;
-        String pmName = null;
-
-        // Detect package manager
-        java.util.LinkedHashMap<String,String[]> managers = new java.util.LinkedHashMap<>();
-        managers.put("apt-get",  new String[]{"apt-get","install","-y","g++","libglfw3-dev","libglew-dev"});
-        managers.put("apt",      new String[]{"apt","install","-y","g++","libglfw3-dev","libglew-dev"});
-        managers.put("pacman",   new String[]{"pacman","-S","--noconfirm","gcc","glfw-x11","glew"});
-        managers.put("dnf",      new String[]{"dnf","install","-y","gcc-c++","glfw-devel","glew-devel"});
-        managers.put("yum",      new String[]{"yum","install","-y","gcc-c++","glfw-devel","glew-devel"});
-        managers.put("zypper",   new String[]{"zypper","install","-y","gcc-c++","glfw-devel","glew-devel"});
-        managers.put("emerge",   new String[]{"emerge","media-libs/glfw","media-libs/glew","sys-devel/gcc"});
-        managers.put("nix-env",  new String[]{"nix-env","-iA","nixpkgs.gcc","nixpkgs.glfw","nixpkgs.glew"});
-        managers.put("brew",     new String[]{"brew","install","gcc","glfw","glew"});
-
-        for (java.util.Map.Entry<String,String[]> e : managers.entrySet()) {
-          try {
-            Process p2 = Runtime.getRuntime().exec(new String[]{"which", e.getKey()});
-            if (p2.waitFor() == 0) { pm = e.getKey(); pmCmd = e.getValue(); pmName = e.getKey(); break; }
-          } catch (Exception ignored) {}
-        }
-
-        String installLine = pm != null
-          ? "Detected: <b>" + pm + "</b><br><br>"
-          + "Will run:<br>&nbsp;&nbsp;<code>sudo " + String.join(" ", pmCmd) + "</code>"
-          : "Could not detect package manager.<br>Install manually and restart Processing.";
-
-        Object[] opts = pm != null
-          ? new Object[]{"Install Automatically", "More Info", "Cancel"}
-          : new Object[]{"More Info", "Cancel"};
-
-        int ch = javax.swing.JOptionPane.showOptionDialog(null,
-          new javax.swing.JLabel(
-            "<html><b>g++ (C++ compiler) not found.</b><br><br>"
-            + installLine + "<br><br>"
-            + "<b>Manual install:</b><br>"
-            + "&nbsp;&nbsp;<b>apt/apt-get</b> (Ubuntu, Debian, Pop!_OS, Mint):<br>"
-            + "&nbsp;&nbsp;&nbsp;&nbsp;<code>sudo apt install g++ libglfw3-dev libglew-dev</code><br>"
-            + "&nbsp;&nbsp;<b>pacman</b> (Arch, Manjaro, EndeavourOS):<br>"
-            + "&nbsp;&nbsp;&nbsp;&nbsp;<code>sudo pacman -S gcc glfw-x11 glew</code><br>"
-            + "&nbsp;&nbsp;<b>dnf/yum</b> (Fedora, RHEL, CentOS):<br>"
-            + "&nbsp;&nbsp;&nbsp;&nbsp;<code>sudo dnf install gcc-c++ glfw-devel glew-devel</code><br>"
-            + "&nbsp;&nbsp;<b>zypper</b> (openSUSE):<br>"
-            + "&nbsp;&nbsp;&nbsp;&nbsp;<code>sudo zypper install gcc-c++ glfw-devel glew-devel</code><br>"
-            + "&nbsp;&nbsp;<b>emerge</b> (Gentoo):<br>"
-            + "&nbsp;&nbsp;&nbsp;&nbsp;<code>sudo emerge media-libs/glfw media-libs/glew</code><br>"
-            + "&nbsp;&nbsp;<b>brew</b> (macOS/Linuxbrew):<br>"
-            + "&nbsp;&nbsp;&nbsp;&nbsp;<code>brew install gcc glfw glew</code></html>"),
-          "C++ Compiler Not Found",
-          javax.swing.JOptionPane.YES_NO_CANCEL_OPTION,
-          javax.swing.JOptionPane.ERROR_MESSAGE,
-          null, opts, opts[0]);
-
-        if (pm != null && ch == 0) {
-          autoInstallLinux(pmCmd, listener);
-          return;
-        } else if ((pm != null && ch == 1) || (pm == null && ch == 0)) {
-          try { java.awt.Desktop.getDesktop().browse(new java.net.URI("https://gcc.gnu.org/install/")); }
-          catch (Exception ignored) {}
-        }
-        listener.statusError("g++ not found â install with your package manager");
-        throw new Exception("g++ not found");
-      }
-    }
-  }
-
+  /**
+   * Full pipeline: parse → analyse → emit → write → g++.
+   * Returns the compiled binary, or {@code null} on error (after notifying
+   * {@code listener}).
+   */
   public File compile(RunnerListener listener) throws Exception {
-
-    // Check g++ is available before doing anything else
     checkGppAvailable(listener);
 
     File sketchSrc = writeSketch(listener);
+    if (sketchSrc == null) return null;
 
     boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
     boolean isMac     = System.getProperty("os.name").toLowerCase().contains("mac");
@@ -528,65 +90,24 @@ public class CppBuild {
     File    binary    = new File(buildDir, sketch.getName() + ext);
     String  gpp       = findGpp(isWindows);
 
-    int gppVer = gppMajorVersion(gpp);
-    if (gppVer > 0 && gppVer < 7) {
-      listener.statusError("g++ " + gppVer + " is too old — need GCC 7+ for C++17.");
-      boolean isWin2 = isWindows;
-      final int[] choice = {-1};
-      try {
-        javax.swing.SwingUtilities.invokeAndWait(() -> {
-          Object[] opts = {"Update g++", "Cancel"};
-          choice[0] = javax.swing.JOptionPane.showOptionDialog(null,
-            "<html><b>g++ " + gppVer + " is too old.</b><br><br>"
-            + "CppMode requires GCC 7 or newer for C++17 support.<br>"
-            + "Your version: <b>GCC " + gppVer + "</b><br><br>"
-            + (isWin2 ? "Click <b>Update g++</b> to download the latest portable GCC."
-                     : "Please update g++ using your system package manager.") + "</html>",
-            "g++ Too Old",
-            javax.swing.JOptionPane.DEFAULT_OPTION,
-            javax.swing.JOptionPane.ERROR_MESSAGE,
-            null, opts, opts[0]);
-        });
-      } catch (Exception ignored2) {}
-      if (choice[0] == 0) {
-        if (isWin2) {
-          try { InstallWizard.run(listener); } catch (Exception ignored3) {}
-        } else {
-          // Linux/macOS: open the install wizard which handles package managers
-          try { InstallWizard.run(listener); } catch (Exception ignored3) {}
-        }
-      }
-      throw new Exception("g++ too old: " + gppVer);
-    }
-
     String stdOverride = (listener instanceof CppEditor ce) ? ce.getSelectedCppStd() : null;
     List<String> cmd = buildCommand(gpp, sketchSrc, binary, isWindows, isMac, stdOverride);
     listener.statusNotice("$ " + String.join(" ", cmd));
-    // Only print the full compile command when debug mode is actually on
-    // (i.e. the DEBUG file already caused buildCommand() to add
-    // -DPROCESSING_DEBUG above) -- this is itself a debugging aid, so it
-    // follows the same toggle as everything else PDEBUG-related, instead
-    // of always printing regardless of the DEBUG file's contents.
-    if (cmd.contains("-DPROCESSING_DEBUG")) {
-      System.err.println("=== FULL COMPILE COMMAND ===");
-      System.err.println(String.join(" ", cmd));
-    }
 
     ProcessBuilder pb = toolchainEnv(new ProcessBuilder(cmd));
     pb.redirectErrorStream(true);
     pb.directory(buildDir);
-    // Pass sketch folder so Processing.cpp can find data/ assets
     pb.environment().put("PROCESSING_SKETCH_PATH", sketch.getFolder().getAbsolutePath());
     Process proc = pb.start();
 
-    StringBuilder fullOutput   = new StringBuilder();
-    int           firstErrLine = -1;
+    StringBuilder output = new StringBuilder();
+    int firstErrLine = -1;
 
     try (BufferedReader br = new BufferedReader(
-            new InputStreamReader(proc.getInputStream()))) {
+             new InputStreamReader(proc.getInputStream()))) {
       String line;
       while ((line = br.readLine()) != null) {
-        fullOutput.append(line).append("\n");
+        output.append(line).append("\n");
         if (firstErrLine < 0) {
           Matcher m = ERR_LINE.matcher(line);
           if (m.find()) {
@@ -594,4117 +115,490 @@ public class CppBuild {
             catch (NumberFormatException ignored) {}
           }
         }
-        if (line.contains("error:") || line.contains("warning:") || line.contains("note:") || line.contains("Processing::")) {
-          for (String w : wordWrap(rewriteGccError(line), 120)) System.err.println(w);
-        } else if (!line.isBlank()) {
-          for (String w : wordWrap(rewriteGccError(line), 120)) System.out.println(w);
+        if (shownHit == null && line.contains("error:")) {
+          CppErrors.Hit h0 = CppErrors.match(line);
+          if (h0 != null) { shownHit = h0; printDiagnostic(h0.text()); printDiagnostic("More: " + h0.url()); }
         }
+        printDiagnostic(line);
       }
     }
 
-    int exitCode = proc.waitFor();
-    if (exitCode != 0) {
-      if (firstErrLine > 0 && listener instanceof CppEditor) {
-        final int el = Math.max(1, firstErrLine - headerLineCount);
-        javax.swing.SwingUtilities.invokeLater(() ->
-          ((CppEditor) listener).highlightErrorLine(el));
+    int exit = proc.waitFor();
+    if (exit != 0) {
+      if (firstErrLine > 0 && listener instanceof CppEditor ce) {
+        // firstErrLine is a line in all tabs joined together: find its tab
+        int tab = 0;
+        for (int i = tabStartLines.length - 1; i >= 0; i--)
+          if (firstErrLine >= tabStartLines[i]) { tab = i; break; }
+        final int ft = tab;
+        final int el = Math.max(1, firstErrLine - tabStartLines[tab] + 1);
+        javax.swing.SwingUtilities.invokeLater(() -> {
+          if (sketch.getCurrentCodeIndex() != ft) sketch.setCurrentCode(ft);
+          ce.highlightErrorLine(el);
+        });
       }
-      listener.statusError("Build failed â see console for errors.");
-      throw new Exception(fullOutput.toString());
+      CppErrors.Hit hit = shownHit != null ? shownHit : CppErrors.find(output.toString());
+      boolean alreadyShown = shownHit != null;
+      shownHit = null;
+      if (hit != null) {
+        if (!alreadyShown) { printDiagnostic(hit.text()); printDiagnostic("More: " + hit.url()); }
+        listener.statusError(hit.text());
+      } else {
+        listener.statusError("Build failed, see console for errors.");
+      }
+      throw new Exception(output.toString());
     }
 
-    // Copy default.ttf to sketch folder so the binary finds it at runtime
-    File font = new File(runtimeDir, "default.ttf");
-    if (font.exists()) {
-      File dest = new File(sketch.getFolder(), "default.ttf");
-      if (!dest.exists())
-        java.nio.file.Files.copy(font.toPath(), dest.toPath());
-    }
-    // Copy bundled macOS dylibs to sketch folder so the binary finds them at runtime.
-    if (isMac) {
-      String macArch2 = System.getProperty("os.arch","").contains("aarch64") ? "arm64" : "x64";
-      File macLibsDir2 = new File(runtimeDir.getParentFile(), "libs/macos");
-      if (macLibsDir2.exists()) {
-        File macBinaryDir = new File(binary.getParent());
-        macBinaryDir.mkdirs();
-        for (File dylib : macLibsDir2.listFiles((d,n) -> n.endsWith(".dylib"))) {
-          for (File destDir : new File[]{macBinaryDir, sketch.getFolder()}) {
-            File destDylib = new File(destDir, dylib.getName());
-            try { java.nio.file.Files.copy(dylib.toPath(), destDylib.toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
-            catch (Exception ignored) {}
-          }
-        }
-      }
-    }
+    copyRuntimeAssets(binary, isWindows, isMac);
     listener.statusNotice("Built: " + binary.getName());
-
-    // Check for required native libraries on all platforms
-    checkNativeLibs(listener, binary);
-
     return binary;
   }
 
-  private boolean commandExists(String cmd) {
-    try {
-      Process p = Runtime.getRuntime().exec(new String[]{ cmd, "--version" });
-      return p.waitFor() == 0;
-    } catch (Exception e) { return false; }
-  }
-
-  private void checkNativeLibs(RunnerListener listener, File binary) throws Exception {
-    String os   = System.getProperty("os.name").toLowerCase();
-    boolean win = os.contains("win");
-    boolean mac = os.contains("mac");
-
-    if (win) {
-      checkWindowsDLLs(listener, binary);
-    } else if (mac) {
-      checkMacLibs(listener);
-    } else {
-      checkLinuxLibs(listener);
-    }
-  }
-
-  // ââ Windows ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-  private boolean windowsLibsNowPresent(java.util.List<String> searchDirs, String[] required) {
-    outer:
-    for (String dll : required) {
-      for (String dir : searchDirs)
-        if (new File(dir, dll).exists()) continue outer;
-      return false;
-    }
-    return true;
-  }
-
-  private void checkWindowsDLLs(RunnerListener listener, File binary) throws Exception {
-    String[] allDlls = { "glfw3.dll", "glew32.dll", "libgcc_s_seh-1.dll", "libssp-0.dll", "libwinpthread-1.dll" };
-    String[] required = { "glfw3.dll", "glew32.dll" };
-
-    // Bundled DLLs are in libs/windows-x64 -- copy them next to the binary
-    File bundledDir = new File(runtimeDir.getParentFile(), "libs/windows-x64");
-
-    File binaryDir = new File(binary.getParent());
-    binaryDir.mkdirs();
-
-    // DLL search dirs: WinLibs portable gcc first (exact match for compiler used),
-    // then bundled, then MSYS2
-    java.util.List<File> dllSources = new java.util.ArrayList<>();
-    File portableGccBin = InstallWizard.getPortableGccDir();
-    if (portableGccBin.exists()) dllSources.add(portableGccBin);
-    dllSources.add(bundledDir);
-    for (String msysDir : new String[]{"C:\\msys64\\mingw64\\bin","C:\\msys2\\mingw64\\bin"})
-      dllSources.add(new File(msysDir));
-    // Also search system PATH entries for gcc runtime DLLs
-    String syspath = System.getenv("PATH");
-    if (syspath != null) {
-      for (String dir : syspath.split(";"))
-        dllSources.add(new File(dir.trim()));
-    }
-
-    for (String dll : allDlls) {
-      for (File sourceDir : dllSources) {
-        File src2 = new File(sourceDir, dll);
-        if (!src2.exists()) continue;
-        // Copy next to binary
-        try { java.nio.file.Files.copy(src2.toPath(), new File(binaryDir, dll).toPath(),
-            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception ignored) {}
-        try { java.nio.file.Files.copy(src2.toPath(), new File(sketch.getFolder(), dll).toPath(),
-            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception ignored) {}
-        break;
-      }
-    }
-
-    // If all required DLLs exist in bundledDir, we're good -- they were
-    // either copied successfully or will be found via the bundled path.
-    boolean allBundled = true;
-    for (String dll : required)
-      if (!new File(bundledDir, dll).exists()) { allBundled = false; break; }
-    if (allBundled) return;
-    // Bundled dir missing some DLLs -- report error
-    java.util.List<String> missing = new java.util.ArrayList<>();
-    for (String dll : required)
-      if (!new File(bundledDir, dll).exists()) missing.add(dll);
-    if (missing.isEmpty()) return;
-
-    // DLLs missing from bundle -- this should not happen in a correct install
-    listener.statusError("Missing DLLs: " + String.join(", ", missing) +
-        " -- try reinstalling CppMode from https://github.com/processing-cpp/processing.cpp");
-    throw new Exception("Missing DLLs: " + missing);
-  }
-
-  private void checkMacLibs(RunnerListener listener) throws Exception {
-    // Check bundled dylibs first -- if present, no Homebrew needed
-    String macArch = System.getProperty("os.arch","").contains("aarch64") ? "arm64" : "x64";
-    File macLibsDir = new File(runtimeDir.getParentFile(), "libs/macos");
-    boolean hasBundled = new File(macLibsDir, "libglfw.3.dylib").exists()
-                      && new File(macLibsDir, "libGLEW.dylib").exists();
-    if (hasBundled) return;
-    // Fall back to Homebrew check
-    boolean glfwOk = new File("/opt/homebrew/lib/libglfw.dylib").exists()
-                  || new File("/usr/local/lib/libglfw.dylib").exists()
-                  || commandExists("pkg-config glfw3");
-    boolean glewOk = new File("/opt/homebrew/lib/libGLEW.dylib").exists()
-                  || new File("/usr/local/lib/libGLEW.dylib").exists()
-                  || commandExists("pkg-config glew");
-    if (glfwOk && glewOk) return;
-
-    java.util.List<String> missing = new java.util.ArrayList<>();
-    if (!glfwOk) missing.add("glfw");
-    if (!glewOk) missing.add("glew");
-
-    // Try the guided installer first.
-    if (InstallWizard.run(listener)) {
-      boolean glfwNow = new File("/opt/homebrew/lib/libglfw.dylib").exists()
-                      || new File("/usr/local/lib/libglfw.dylib").exists()
-                      || commandExists("pkg-config glfw3");
-      boolean glewNow = new File("/opt/homebrew/lib/libGLEW.dylib").exists()
-                      || new File("/usr/local/lib/libGLEW.dylib").exists()
-                      || commandExists("pkg-config glew");
-      if (glfwNow && glewNow) return;
-    }
-
-    int choice = javax.swing.JOptionPane.showConfirmDialog(null,
-      "Missing libraries: " + String.join(", ", missing) + "\n\n" +
-      "C++ Mode requires GLFW and GLEW to run sketches.\n" +
-      "Click OK to install them via Homebrew.",
-      "Missing Libraries", javax.swing.JOptionPane.OK_CANCEL_OPTION,
-      javax.swing.JOptionPane.WARNING_MESSAGE);
-
-    if (choice != javax.swing.JOptionPane.OK_OPTION) return;
-
-    // Check if brew is available
-    if (!commandExists("brew")) {
-      try { java.awt.Desktop.getDesktop().browse(new java.net.URI("https://brew.sh")); }
-      catch (Exception ignored) {}
-      javax.swing.JOptionPane.showMessageDialog(null,
-        "Homebrew not found. Please install it from https://brew.sh\n\n" +
-        "Then run:\n  brew install glfw glew\n\nThen restart Processing.",
-        "Install Homebrew", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-      return;
-    }
-
-    new Thread(() -> {
-      try {
-        listener.statusNotice("Installing GLFW and GLEW via Homebrew...");
-        ProcessBuilder pb = toolchainEnv(new ProcessBuilder("brew", "install", "glfw", "glew"));
-        pb.redirectErrorStream(true);
-        Process p = pb.start();
-        try (java.io.BufferedReader br = new java.io.BufferedReader(
-            new java.io.InputStreamReader(p.getInputStream()))) {
-          String line; while ((line = br.readLine()) != null) System.out.println(line);
-        }
-        if (p.waitFor() == 0) {
-          listener.statusNotice("Libraries installed â you can now run your sketch.");
-          javax.swing.JOptionPane.showMessageDialog(null,
-            "GLFW and GLEW installed successfully!\nYou can now run your sketch.",
-            "Done", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-        } else {
-          listener.statusError("Installation failed â try: brew install glfw glew");
-        }
-      } catch (Exception e) { listener.statusError("Install error: " + e.getMessage()); }
-    }).start();
-  }
-
-  // ââ Linux ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-  private void checkLinuxLibs(RunnerListener listener) throws Exception {
-    boolean glfwOk = new File("/usr/lib/libglfw.so").exists()
-                  || new File("/usr/lib/x86_64-linux-gnu/libglfw.so").exists()
-                  || new File("/usr/lib/x86_64-linux-gnu/libglfw.so.3").exists()
-                  || commandExists("pkg-config glfw3");
-    boolean glewOk = new File("/usr/lib/libGLEW.so").exists()
-                  || new File("/usr/lib/x86_64-linux-gnu/libGLEW.so").exists()
-                  || commandExists("pkg-config glew");
-
-    if (glfwOk && glewOk) return;
-
-    // Try the guided installer first.
-    if (InstallWizard.run(listener)) {
-      boolean glfwNow = new File("/usr/lib/libglfw.so").exists()
-                     || new File("/usr/lib/x86_64-linux-gnu/libglfw.so").exists()
-                     || new File("/usr/lib/x86_64-linux-gnu/libglfw.so.3").exists()
-                     || commandExists("pkg-config glfw3");
-      boolean glewNow = new File("/usr/lib/libGLEW.so").exists()
-                     || new File("/usr/lib/x86_64-linux-gnu/libGLEW.so").exists()
-                     || commandExists("pkg-config glew");
-      if (glfwNow && glewNow) return;
-    }
-
-    java.util.List<String> missing = new java.util.ArrayList<>();
-    if (!glfwOk) missing.add("libglfw3-dev");
-    if (!glewOk) missing.add("libglew-dev");
-
-    // Detect package manager
-    String installCmd = detectLinuxInstallCmd(missing);
-
-    int choice = javax.swing.JOptionPane.showConfirmDialog(null,
-      "Missing libraries: " + String.join(", ", missing) + "\n\n" +
-      "C++ Mode requires GLFW and GLEW to run sketches.\n" +
-      "Click OK to install them automatically.",
-      "Missing Libraries", javax.swing.JOptionPane.OK_CANCEL_OPTION,
-      javax.swing.JOptionPane.WARNING_MESSAGE);
-
-    if (choice != javax.swing.JOptionPane.OK_OPTION) return;
-
-    if (installCmd == null) {
-      javax.swing.JOptionPane.showMessageDialog(null,
-        "<html><b>Unknown Linux distribution.</b><br><br>"
-        + "Please install g++, GLFW, and GLEW manually<br>"
-        + "using your distro's package manager,<br>"
-        + "then restart Processing.</html>",
-        "Missing Libraries", javax.swing.JOptionPane.WARNING_MESSAGE);
-      return;
-    }
-
-    final String cmd = installCmd;
-    new Thread(() -> {
-      try {
-        listener.statusNotice("Installing libraries...");
-        // Write install script to temp file and run it in a terminal
-        java.io.File tmp = java.io.File.createTempFile("cpp_install_", ".sh");
-        tmp.deleteOnExit();
-        try (java.io.PrintWriter pw = new java.io.PrintWriter(tmp)) {
-          pw.println("#!/bin/bash");
-          pw.println("echo '==============================='");
-          pw.println("echo '  C++ Mode Library Installer  '");
-          pw.println("echo '==============================='");
-          pw.println("echo ''");
-          pw.println("show_progress() {");
-          pw.println("  local pid=$1 msg=$2 i=0");
-          pw.println("  local spin='|/-\\\\'");
-          pw.println("  while kill -0 $pid 2>/dev/null; do");
-          pw.println("    i=$(( (i+1) % 4 ))");
-          pw.println("    printf '\\r  [%s] %s' \"${spin:$i:1}\" \"$msg\"");
-          pw.println("    sleep 0.15");
-          pw.println("  done");
-          pw.println("  printf '\\r  [OK] %s\\n' \"$msg\"");
-          pw.println("}");
-          pw.println("echo 'Installing g++, GLFW, GLEW...'");          pw.println("echo 'Installing g++, GLFW, GLEW...'");
-          pw.println("echo ''");
-          pw.println(cmd + " &");
-          pw.println("PKG_PID=$!");
-          pw.println("spinner $PKG_PID 'Installing packages...'");
-          pw.println("wait $PKG_PID");
-          pw.println("EXIT=$?");
-          pw.println("echo ''");
-          pw.println("if [ $EXIT -eq 0 ]; then");
-          pw.println("  echo '==============================='");
-          pw.println("  echo '  Installation complete!'");
-          pw.println("  echo '  Please restart Processing.'");
-          pw.println("  echo '==============================='");
-          pw.println("else");
-          pw.println("  echo 'Installation failed. Try running manually:'");
-          pw.println("  echo '" + cmd + "'");
-          pw.println("fi");
-          pw.println("read -p 'Press Enter to close...'");
-        }
-        tmp.setExecutable(true);
-
-        // Try to open in a terminal emulator
-        String[] terminals = {
-          "x-terminal-emulator", "gnome-terminal", "konsole",
-          "xfce4-terminal", "xterm", "alacritty", "kitty"
-        };
-        boolean launched = false;
-        for (String term : terminals) {
-          if (!cmdExists(term)) continue;
-          String[] termCmd;
-          if (term.equals("gnome-terminal"))
-            termCmd = new String[]{ term, "--", "bash", tmp.getAbsolutePath() };
-          else if (term.equals("alacritty") || term.equals("kitty"))
-            termCmd = new String[]{ term, "-e", "bash", tmp.getAbsolutePath() };
-          else
-            termCmd = new String[]{ term, "-e", "bash " + tmp.getAbsolutePath() };
-          try {
-            toolchainEnv(new ProcessBuilder(termCmd)).start();
-            launched = true;
-            break;
-          } catch (Exception ignored) {}
-        }
-        if (!launched) {
-          // Fallback: run directly
-          ProcessBuilder pb = toolchainEnv(new ProcessBuilder("bash", tmp.getAbsolutePath()));
-          pb.redirectErrorStream(true);
-          Process p = pb.start();
-          try (java.io.BufferedReader br = new java.io.BufferedReader(
-              new java.io.InputStreamReader(p.getInputStream()))) {
-            String line; while ((line = br.readLine()) != null) System.out.println(line);
-          }
-          p.waitFor();
-        }
-        listener.statusNotice("Installer launched â restart Processing when done.");
-        javax.swing.JOptionPane.showMessageDialog(null,
-          "<html><b>Installer launched!</b><br><br>"
-          + "When it says <b>Installation complete!</b>:<br>"
-          + "&nbsp;&nbsp;1. Close the terminal<br>"
-          + "&nbsp;&nbsp;2. <b>Restart Processing</b></html>",
-          "Installing...", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-      } catch (Exception e) { listener.statusError("Install error: " + e.getMessage()); }
-    }).start();
-  }
-
-  private boolean cmdExists(String cmd) {
-    try {
-      String os = System.getProperty("os.name","").toLowerCase();
-      ProcessBuilder pb;
-      if (os.contains("win")) {
-        // On Windows use 'where' instead of 'which'
-        pb = toolchainEnv(new ProcessBuilder("where", cmd));
-      } else {
-        pb = toolchainEnv(new ProcessBuilder("which", cmd));
-      }
-      pb.redirectErrorStream(true);
-      return pb.start().waitFor() == 0;
-    } catch (Exception e) { return false; }
-  }
-
-  private boolean compilerExists(ExportTarget t) {
-    String os = System.getProperty("os.name","").toLowerCase();
-    boolean isWin = os.contains("win");
-
-    // macOS cross-compile needs osxcross - not bundled
-    if (t == ExportTarget.MACOS_X64 || t == ExportTarget.MACOS_ARM64)
-      return cmdExists(t.compiler);
-
-    // Linux targets: need Linux/Mac to cross-compile
-    if (!t.isWindows) {
-      if (t == ExportTarget.MACOS_X64 || t == ExportTarget.MACOS_ARM64)
-        return cmdExists(t.compiler);
-      if (isWin) return false; // not available on Windows - need Linux machine
-      if (muslToolchainInstalled(t)) return true;
-      return cmdExists(t.compiler);
-    }
-
-    // Windows target
-    if (isWin) {
-      String[] msysPaths = {
-        "C:\\msys64\\mingw64\\bin\\g++.exe",
-        "C:\\msys2\\mingw64\\bin\\g++.exe",
-        System.getProperty("user.home") + "\\msys64\\mingw64\\bin\\g++.exe"
-      };
-      for (String p : msysPaths)
-        if (new java.io.File(p).exists()) return true;
-      return cmdExists("g++");
-    }
-    return cmdExists(t.compiler);
-  }
-
-  private String detectLinuxInstallCmd(java.util.List<String> aptPkgs) {
-    if (cmdExists("apt-get"))
-      return "pkexec apt-get install -y libglfw3-dev libglew-dev g++";
-    if (cmdExists("pacman"))
-      return "pkexec bash -c 'pacman -S --noconfirm --overwrite=* gcc glfw-x11 glew"
-           + " || pacman -S --noconfirm --overwrite=* gcc glfw glew'";
-    if (cmdExists("dnf"))
-      return "pkexec dnf install -y gcc-c++ glfw-devel glew-devel";
-    if (cmdExists("zypper"))
-      return "pkexec zypper install -y gcc-c++ libglfw3 libglfw-devel glew-devel";
-    if (cmdExists("emerge"))
-      return "pkexec emerge --ask=n media-libs/glfw media-libs/glew sys-devel/gcc";
-    if (cmdExists("xbps-install"))
-      return "pkexec xbps-install -y gcc glfw-devel glew";
-    if (cmdExists("apk"))
-      return "pkexec apk add --no-cache gcc g++ glfw-dev glew-dev";
-    return null;
-  }
-
-  // Lifecycle/event method names, shared between the AST pipeline's
-  // override-marking and dependency-exclusion rules. Same list as the
-  // original's local "lifecycleMethods" array, just hoisted to a
-  // constant since both LifecycleRewriter and DependencyHoister need it.
-  public static final java.util.Set<String> LIFECYCLE_METHOD_NAMES = java.util.Set.of(
-      "setup", "draw", "settings",
-      "mousePressed", "mouseReleased", "mouseClicked",
-      "mouseMoved", "mouseDragged", "mouseWheel",
-      "keyPressed", "keyReleased", "keyTyped",
-      "windowMoved", "windowResized"
-  );
-
   /**
-   * Replaces the original writeSketch()'s regex/character-walking
-   * hoisting and rewriting passes (hoistClassesOnly, removeHoistedClasses,
-   * classifyTopLevelDecls-based array/variable/function hoisting,
-   * rewriteAsSketchMethods, the inline enumScope/constexprScope
-   * extraction, and the inline _PSketch-injection regex chain) with the
-   * real AST pipeline built and tested in tools/cpp-parser/ (see
-   * DECISION_two_parser_implementations.md for the full history,
-   * including two real bugs found and fixed via PipelineCompositionTest
-   * before this was wired in here).
-   *
-   * Every literal scaffolding string this method emits (the #include
-   * lines, the using-declarations, the _PSketch struct body, the
-   * free-function forwarding, and main()) is UNCHANGED from the
-   * original -- none of that depends on parsing user code at all, so
-   * none of it needed to change. Only the user-code transformation
-   * steps (hoisting, lifecycle override-marking, pointer-defaulting)
-   * were replaced.
-   *
-   * NOT YET PORTED to this pipeline, carried over as known gaps from
-   * DECISION_two_parser_implementations.md: constexpr/static_assert/
-   * type-alias "using" extraction (zero corpus evidence for any of
-   * these -- see EnumScopeExtractor's javadoc), and the most-vexing-
-   * parse direct-init rewrite for any case OTHER than the one this
-   * pipeline's CodeGen already emits as brace-init unconditionally
-   * (CodeGen renders ALL direct-init as braces now, which is a
-   * strictly safer superset of the original's behavior, not a gap).
+   * Run only the tree-sitter pipeline and return the generated C++ source.
+   * Used by {@link CppLinter} to produce the source it passes to
+   * {@code g++ -fsyntax-only}.
    */
-  /**
-   * Wraps Parser.parse(code) with the same error-reporting convention
-   * already used by checkForUnsupportedJavaArraySyntax (detailed message
-   * to System.err, short message to listener.statusError(), then a
-   * RuntimeException) instead of letting a ParseException propagate as
-   * a raw, unhandled exception all the way up through writeSketch() ->
-   * compile() -> CppMode.handleLaunch() -> whatever the outer Processing
-   * IDE framework happens to do with an arbitrary uncaught exception
-   * from a Mode plugin.
-   *
-   * Found this gap while investigating a deliberately-left-unfixed
-   * parser limitation (non-type template arguments, e.g.
-   * "std::array<int, 5>") and confirming it fails GRACEFULLY (a clean
-   * ParseException with an accurate line/column, not a crash or a
-   * silent misparse) rather than just assuming so -- tracing where that
-   * exception actually goes surfaced that NOTHING in this Mode's own
-   * code catches it at all, at any layer, before this fix. Whether
-   * processing4's own core Editor/Sketch-running machinery already
-   * catches an arbitrary uncaught exception from a Mode's
-   * handleLaunch() with a reasonable user-facing error isn't something
-   * this project's available source could confirm either way -- this
-   * fix makes the Mode's OWN behavior strictly better regardless of
-   * what that outer layer does, by ensuring the sketch author sees a
-   * clean, accurate "your code has a syntax error at line N, column M"
-   * message via the IDE's own status bar specifically, the same way
-   * they already do for E0004 (Java array syntax) and would for any
-   * other Mode-level validation error.
-   *
-   * Throws AlreadyReportedException (not a plain RuntimeException) so
-   * the writeSketch() safety-net wrapper added alongside this (see its
-   * own javadoc) can tell "this was already cleanly reported to the
-   * user via listener.statusError()" apart from "this is a genuinely
-   * unexpected crash the user hasn't seen a message for yet" -- without
-   * relying on fragile message-string matching to make that distinction.
-   */
-  private static final class AlreadyReportedException extends RuntimeException {
-    AlreadyReportedException(String message) { super(message); }
-  }
-
-  private static String stripRawStringLiterals(String code) {
-    StringBuilder out = new StringBuilder();
-    int i = 0;
-    while (i < code.length()) {
-      if (i + 1 < code.length() && code.charAt(i) == 'R' && code.charAt(i+1) == '"') {
-        int j = i + 2;
-        StringBuilder delim = new StringBuilder();
-        while (j < code.length() && code.charAt(j) != '(' && code.charAt(j) != '"') {
-          delim.append(code.charAt(j++));
-        }
-        if (j < code.length() && code.charAt(j) == '(') {
-          String closer = ")" + delim.toString() + "\"";
-          int end = code.indexOf(closer, j + 1);
-          if (end >= 0) {
-            out.append("\"<raw>\"");
-            i = end + closer.length();
-            continue;
-          }
-        }
-      }
-      out.append(code.charAt(i++));
-    }
-    return out.toString();
-  }
-
-  private CompilationUnit parseOrReportError(String code, RunnerListener listener) {
-    try {
-      return Parser.parse(code);
-    } catch (ParseException e) {
-      System.err.println(ErrorFormatter.format(code, e));
-      listener.statusError(ErrorFormatter.statusLine(e));
-      throw new AlreadyReportedException("Syntax error: " + e.getMessage());
+  public static String generateSketchOutput(String sketchSource) throws Exception {
+    String sanitised = sanitise(sketchSource);
+    TsEngine engine = TsEngine.getOrNull();
+    if (engine == null) throw new IllegalStateException("tree-sitter native library not available");
+    try (TsEngine.ParseResult result = engine.parse(sanitised)) {
+      SketchAnalysis analysis = SketchAnalyzer.analyse(result);
+      return SketchEmitter.emit(analysis, result);
     }
   }
 
-  /**
-   * Safety-net wrapper around writeSketchImpl(). The parse step itself
-   * is already guarded (see parseOrReportError() and
-   * checkForUnsupportedJavaArraySyntax(), both throwing
-   * AlreadyReportedException after cleanly reporting via
-   * listener.statusError()) -- but writeSketchImpl() also makes roughly
-   * twenty further calls into the AST pipeline (ClassHoister,
-   * PSketchInjector, ArrayHoister, DependencyHoister, ForwardDeclGenerator,
-   * LifecycleRewriter, EnumScopeExtractor, CodeGen), none of which were
-   * individually guarded. RealHeaderStressTest/RealCorpusStressTest
-   * confirmed zero crashes across the full 131-file real example
-   * corpus, both against a hand-built stub and the real engine headers
-   * -- but "zero crashes on every sketch tested so far" isn't the same
-   * guarantee as "zero crashes on any sketch anyone ever writes," and an
-   * unexpected exception from deep in the pipeline (a NullPointerException,
-   * ClassCastException, or anything else not yet seen) would otherwise
-   * propagate exactly as raw and unhandled as the ParseException gap
-   * this same investigation found and fixed.
-   *
-   * Catches any RuntimeException that ISN'T already an
-   * AlreadyReportedException (avoiding a double report for an error the
-   * person has already seen via statusError()) and reports it the same
-   * way, with a generic but still useful message plus the real
-   * exception detail in the console -- strictly better than an
-   * unhandled crash, even though "an internal error occurred" is
-   * necessarily less specific than a real syntax-error message can be.
-   */
-  /** Set by CppCLI to bypass sketch.getCode() -- raw PDE code to translate. */
-  String cliRawCode = null;
+  // ── Sketch writing ────────────────────────────────────────────────────────
 
-  /** Entry point for CppCLI: translate raw PDE code to C++ string. */
-  public static String generateSketchOutput(String rawCode) throws Exception {
-    java.io.File tmpDir = java.nio.file.Files.createTempDirectory("cppmode_cli").toFile();
-    try {
-      // Allocate without constructor (no Sketch/Mode needed)
-      Class<?> uc = Class.forName("sun.misc.Unsafe");
-      java.lang.reflect.Field uf = uc.getDeclaredField("theUnsafe");
-      uf.setAccessible(true);
-      sun.misc.Unsafe unsafe = (sun.misc.Unsafe) uf.get(null);
-      CppBuild b = (CppBuild) unsafe.allocateInstance(CppBuild.class);
-      b.cliRawCode = rawCode;
-      // Set buildDir so writeSketchImpl can write Sketch_run.cpp
-      java.lang.reflect.Field bd = null;
-      for (Class<?> c = CppBuild.class; c != null; c = c.getSuperclass()) {
-        try { bd = c.getDeclaredField("buildDir"); break; } catch (NoSuchFieldException e) {}
-      }
-      if (bd != null) { bd.setAccessible(true); bd.set(b, tmpDir); }
-      java.lang.reflect.Method ws = CppBuild.class.getDeclaredMethod("writeSketchImpl",
-          processing.app.RunnerListener.class);
-      ws.setAccessible(true);
-      java.io.File out = (java.io.File) ws.invoke(b, (Object) null);
-      return java.nio.file.Files.readString(out.toPath());
-    } finally {
-      java.io.File[] fs = tmpDir.listFiles();
-      if (fs != null) for (java.io.File f : fs) f.delete();
-      tmpDir.delete();
-    }
-  }
-
-  private File writeSketch(RunnerListener listener) throws IOException {
-    try {
-      return writeSketchImpl(listener);
-    } catch (AlreadyReportedException e) {
-      throw e; // already reported via listener.statusError() at the point it was thrown -- just propagate
-    } catch (RuntimeException e) {
-      System.err.println("Internal CppMode error while preparing the sketch for compilation:");
-      e.printStackTrace();
-      listener.statusError("Internal error preparing sketch -- see console for details: " + e.getMessage());
-      throw new AlreadyReportedException("Internal error preparing sketch: " + e.getMessage());
-    }
-  }
-
-  private File writeSketchImpl(RunnerListener listener) throws IOException {
-    StringBuilder prefix = new StringBuilder();
-    StringBuilder suffix = new StringBuilder();
-    for (int i = 0; i < (cliRawCode != null ? 0 : sketch.getCodeCount()); i++) {
-      String prog = sketch.getCode(i).getProgram();
-      boolean hasLifecycle = prog.contains("void setup(") || prog.contains("void draw(");
-      // Non-lifecycle tabs (class definitions etc.) go before lifecycle tabs,
-      // preserving their original tab order. Previously used raw.insert(0, prog)
-      // which reversed non-lifecycle tab order -- so Flock.pde ended up before
-      // Boid.pde even when Flock depends on Boid (Processing sorts tabs
-      // alphabetically, so B < F means Boid is processed first, then inserted
-      // at position 0 AFTER Flock, putting Flock first -- backwards).
-      if (!hasLifecycle) prefix.append(prog).append("\n");
-      else suffix.append(prog).append("\n");
-    }
+  private File writeSketch(RunnerListener listener) throws Exception {
+    // 1. Collect all tabs
+    int tabCount = sketch.getCodeCount();
     StringBuilder raw = new StringBuilder();
-    if (cliRawCode != null) { raw.append(cliRawCode); }
-    else { raw.append(prefix).append(suffix); }
-
-    String code = sanitize(raw.toString());
-    code = removeUserIncludes(code);
-    // Restore noexcept on coroutine promise methods (parser drops noexcept specifier)
-    code = code.replaceAll("(\\bfinal_suspend\\s*\\([^)]*\\))(\\s*\\{)", "$1 noexcept$2");
-    code = code.replaceAll("(\\binitial_suspend\\s*\\([^)]*\\))(\\s*\\{)", "$1 noexcept$2");
-    // Remove no-op translate(0, 0) and translate(0, 0, 0) calls (Problem 7.2)
-    code = code.replaceAll("\\btranslate\\s*\\(\\s*0+\\.?0*f?\\s*,\\s*0+\\.?0*f?\\s*\\)\\s*;", "");
-    code = code.replaceAll("\\btranslate\\s*\\(\\s*0+\\.?0*f?\\s*,\\s*0+\\.?0*f?\\s*,\\s*0+\\.?0*f?\\s*\\)\\s*;", "");
-    warnReservedNames(code, listener);
-    checkForUnsupportedJavaArraySyntax(code, listener);
-    checkForArrayListGetValueCopy(code, listener);
-    checkForArrayListGetDotAccess(code, listener);
-    checkForJavaStaticCallSyntax(code, listener);
-    checkForProcessingNameCollisions(code, listener);
-    code = stripRawStringLiterals(code);
-    code = code.replaceAll("(?<=[0-9a-fA-FxXbB])'(?=[0-9a-fA-F])", "");
-    code = javaToC(code);
-    code = stripNamespaceProcessing(code);
-    code = preprocessMacros(code);
-
-    boolean hasSetup = code.contains("void setup(");
-    boolean hasDraw  = code.contains("void draw(");
-
-    StringBuilder out = new StringBuilder();
-    // preNs collects content that goes BEFORE namespace Processing --
-    // specifically user #include directives which must be in global scope
-    // (GCC 16+ headers use unqualified names that don't resolve in ::Processing)
-    StringBuilder preNs = new StringBuilder();
-    out.append("#include \"Processing.h\"\n");
-    out.append("using std::vector; using std::string; using std::wstring;\n");
-    out.append("using std::pair; using std::make_pair; using std::tuple;\n");
-    out.append("using std::deque; using std::list; using std::stack; using std::queue;\n");
-    out.append("using std::unordered_map; using std::unordered_set;\n");
-    out.append("using std::sort; using std::shuffle; using std::reverse;\n");
-    out.append("using std::unique_ptr; using std::shared_ptr;\n");
-    out.append("using std::to_string; using std::stoi; using std::stof; using std::stod;\n");
-    out.append("using std::cout; using std::cerr; using std::endl;\n");
-    out.append("using std::ifstream; using std::ofstream; using std::stringstream;\n");
-    out.append("using std::move; using std::forward; using std::swap;\n");
-    out.append("using std::begin; using std::end;\n");
-    out.append("using std::accumulate; using std::transform; using std::find;\n");
-    out.append("using std::array; using std::optional; using std::variant;\n");
-    out.append("using std::function;\n");
-    out.append("using std::map; using std::set;\n");
-    out.append("using std::initializer_list; using std::enable_if; using std::enable_if_t;\n");
-    out.append("using std::is_integral_v; using std::is_floating_point_v; using std::is_arithmetic_v;\n");
-    out.append("using std::is_same_v; using std::is_base_of_v; using std::is_convertible_v;\n");
-    out.append("using std::decay_t; using std::remove_reference_t; using std::common_type_t;\n");
-    out.append("using std::declval; using std::void_t;\n");
-    out.append("using std::index_sequence; using std::make_index_sequence;\n");
-    out.append("using std::tuple_size; using std::tuple_element; // std::get intentionally omitted -- shadows PApplet::get()\n");
-    out.append("using std::make_tuple; using std::tie; using std::apply;\n");
-    out.append("using std::runtime_error; using std::logic_error; using std::exception;\n");
-    out.append("using std::numeric_limits;\n");
-    out.append("#if __cplusplus >= 202002L\n");
-    out.append("using std::span;\n");
-    out.append("#endif\n");
-    // C++23 standard library additions -- guarded by version check
-    out.append("#if __cplusplus >= 202302L\n");
-    out.append("#  if __has_include(<expected>)\n");
-    out.append("     using std::expected; using std::unexpected;\n");
-    out.append("#  endif\n");
-    out.append("#  if __has_include(<print>)\n");
-    out.append("     using std::print; using std::println;\n");
-    out.append("#  endif\n");
-    out.append("#endif\n");
-    // C++26 standard library additions -- guarded by version check
-    out.append("#if __cplusplus > 202302L\n");
-    out.append("#  if __has_include(<inplace_vector>)\n");
-    out.append("     using std::inplace_vector;\n");
-    out.append("#  endif\n");
-    out.append("#  if __has_include(<function_ref>)\n");
-    out.append("     using std::function_ref;\n");
-    out.append("#  endif\n");
-    out.append("#endif\n");
-        out.append(preNs); // user #include directives hoisted to global scope
-    out.append("using namespace std;\n");
-    out.append("namespace Processing {\n");
-    out.append("using namespace std;\n");
-    out.append("#include \"Processing_api.h\"\n");
-    out.append("struct _PSketch {\n");
-    out.append("  struct _W   { operator int()   const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->logicalW    : 0;     } } width;\n");
-    out.append("  struct _H   { operator int()   const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->logicalH    : 0;     } } height;\n");
-    out.append("  struct _MX  { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseX      : 0.f;   } } mouseX;\n");
-    out.append("  struct _MY  { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseY      : 0.f;   } } mouseY;\n");
-    out.append("  struct _PMX { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->pmouseX     : 0.f;   } } pmouseX;\n");
-    out.append("  struct _PMY { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->pmouseY     : 0.f;   } } pmouseY;\n");
-    out.append("  struct _FC  { operator int()   const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->frameCount  : 0;     } } frameCount;\n");
-    out.append("  struct _DT  { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->deltaTime   : 0.016f; } } deltaTime;\n");
-    out.append("  struct _MP  { operator bool()  const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->_mousePressed : false; } } _mousePressed;\n");
-    out.append("  struct _KP  { operator bool()  const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->_keyPressed  : false; } } _keyPressed;\n");
-    out.append("  struct _K   { operator char()  const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->key          : 0;     } } key;\n");
-    out.append("  struct _KC  { operator int()   const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->keyCode      : 0;     } } keyCode;\n");
-    out.append("  struct _MB  { operator int()   const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseButton  : 0;     } } mouseButton;\n");
-    out.append("  struct _FR  { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->_frameRate   : 0.f;   } } _frameRate;\n");
-    out.append("  struct _MDX { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseDX      : 0.f;   } } mouseDX;\n");
-    out.append("  struct _MDY { operator float() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseDY      : 0.f;   } } mouseDY;\n");
-    out.append("  bool* keysDown()  const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->keysDown  : nullptr; }\n");
-    out.append("  bool* mouseDown() const { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseDown : nullptr; }\n");
-    out.append("};\n");
-    out.append("\n");
-
-    out.append("#line 1 \"sketch.pde\"\n");
-    headerLineCount = 0;
-
-    if (!hasSetup && !hasDraw) {
-      // ââ Static sketch (no setup/draw) âââââââââââââââââââââââââââââââââââ
-      // Parse the whole thing as a CompilationUnit; the parser itself
-      // already produces a TopLevelStatement wrapper for bare statements
-      // at file scope (see Parser/TopLevelStatement's design notes --
-      // this is exactly the construct this static-mode branch needs).
-      CompilationUnit cu = parseOrReportError(code, listener);
-      ClassHoister.Result classResult = ClassHoister.hoist(cu.items());
-      List<PSketchInjector.Result> injected = PSketchInjector.injectAll(classResult.hoistedClasses);
-      List<TypeDef> finalClasses = injected.stream().map(PSketchInjector.Result::typeDef).toList();
-
-      // Preprocessor directives, namespace blocks, and using-namespace
-      // declarations can never be valid INSIDE a function body or struct --
-      // #include/namespace/using-namespace are only legal at true file
-      // scope. The original per-line text scan never had this problem
-      // (it only ever recognized "size("/"fullScreen(" as special, and
-      // simply emitted every other line as-is inside setup(), silently
-      // producing invalid C++ for any sketch with one of these at top
-      // level -- a real, previously-undetected bug, confirmed by a
-      // PipelineCompositionTest run against a real fixture with top-level
-      // "#include <functional>"/"#include <string>" lines, which produced
-      // structurally broken output: the includes landed inside a function
-      // body). Fixed by emitting these BEFORE the Sketch struct, exactly
-      // where they'd need to be for valid C++, instead of wherever they
-      // happened to appear relative to other top-level code.
-      StringBuilder fileScopeOnly = new StringBuilder();
-      StringBuilder settings = new StringBuilder();
-      StringBuilder body = new StringBuilder();
-      for (TopLevelItem item : classResult.rest) {
-        if (item instanceof PreprocessorLine pl && pl.rawText().startsWith("#include")) {
-          preNs.append(CodeGen.generateNode(item, 0)); // hoist before namespace
-          continue;
-        }
-        if (item instanceof PreprocessorLine pl3) {
-          String rt3 = pl3.rawText().trim();
-          if (rt3.startsWith("extern template ") || rt3.startsWith("template ")
-              || (rt3.startsWith("namespace ") && rt3.contains(" = "))) {
-            preNs.append(CodeGen.generateNode(item, 0)); // hoist to global scope
-          } else {
-            fileScopeOnly.append(CodeGen.generateNode(item, 0));
-          }
-          continue;
-        }
-        if (item instanceof NamespaceDecl || item instanceof UsingNamespaceDecl) {
-          fileScopeOnly.append(CodeGen.generateNode(item, 0));
-          continue;
-        }
-        // Template declarations and free functions go to file scope.
-        // Variables: only those with no initializer or a simple literal/nullptr
-        // go to file scope. Variables with Processing API calls in their initializer
-        // must go into setup() body -- calling API functions at static init time
-        // crashes because g_papplet is null before PApplet is constructed.
-        boolean isAnyFn = item instanceof FunctionDecl;
-        boolean isTemplateTd = item instanceof TypeDef td2
-            && (!td2.templateParams().isEmpty() || td2.name().contains("<"));
-        if (isAnyFn || isTemplateTd) {
-          fileScopeOnly.append(CodeGen.generateNode(item, 0));
-          continue;
-        }
-        if (item instanceof VariableDecl vd2) {
-          // Safe at file scope: no initializer, nullptr, or numeric/string literal
-          Expr _init = vd2.initializer();
-          boolean safeAtFileScope = _init == null
-              || (_init instanceof Literal lit &&
-                  (lit.kind() == Literal.Kind.INT || lit.kind() == Literal.Kind.FLOAT
-                   || lit.kind() == Literal.Kind.STRING || lit.kind() == Literal.Kind.BOOL
-                   || lit.kind() == Literal.Kind.CHAR))
-              || (_init instanceof Identifier id && id.name().equals("nullptr"));
-          if (safeAtFileScope) {
-            fileScopeOnly.append(CodeGen.generateNode(item, 0));
-          } else {
-            body.append(CodeGen.generateNode(item, 2));
-          }
-          continue;
-        }
-        String rendered = CodeGen.generateNode(item, 2);
-        String trimmed = rendered.strip();
-        if (trimmed.startsWith("size(") || trimmed.startsWith("fullScreen(")) {
-          settings.append(rendered);
-        } else {
-          body.append(rendered);
-        }
-      }
-      // Emit template/class definitions BEFORE file-scope variables and using aliases.
-      for (TypeDef td : finalClasses) {
-        if (RESERVED_TYPES.contains(td.name())) continue; // engine already defines this
-        out.append(CodeGen.generateNode(td, 0));
-      }
-      out.append(fileScopeOnly);
-      out.append("struct Sketch : public PApplet {\n");
-      out.append("    void setup() override {\n");
-      out.append(settings);
-      out.append("        for (int _s=0; _s<8; _s++) { delay(1); }\n");
-      out.append("        noLoop();\n");
-      out.append(body);
-      out.append("    }\n");
-      out.append("    void draw() override {}\n");
-      out.append("};\n");
-    } else {
-      // ââ Normal sketch (has setup/draw) âââââââââââââââââââââââââââââââââââ
-      CompilationUnit cu = parseOrReportError(code, listener);
-
-      // Steps 1-7 + auto-hoisting: delegate to shared pipeline.
-      AstPipelineResult pipe = runAstPipeline(cu);
-      EnumScopeExtractor.Result enumResult = pipe.enumResult;
-      ClassHoister.Result classResult      = pipe.classResult;
-      List<TypeDef> finalClasses           = pipe.finalClasses;
-      ArrayHoister.Result arrayResult      = pipe.arrayResult;
-      DependencyHoister.Result depResult   = pipe.depResult;
-      List<FunctionDecl> forwardDecls      = pipe.forwardDecls;
-      List<TopLevelItem> autoHoisted       = pipe.autoHoisted;
-      List<TopLevelItem> effectiveRest     = pipe.filteredRest;
-      List<TopLevelItem> sketchMembers = new ArrayList<>();
-      List<TopLevelItem> deferredAliases = new ArrayList<>();
-      for (TopLevelItem item : effectiveRest) {
-        if (item instanceof PreprocessorLine pl) {
-          String rt = pl.rawText().trim();
-          boolean isTypeAlias = (rt.startsWith("using ") || rt.contains(" using ")) && !rt.contains("using namespace") && rt.contains("=");
-          boolean isDeductionGuide = rt.contains("->") && rt.contains("(") && !rt.startsWith("#")
-              && !rt.contains("concept") && !rt.contains("requires") && (rt.indexOf("{") < 0 || rt.indexOf("->") < rt.indexOf("{"));
-          if (isTypeAlias || isDeductionGuide) {
-            deferredAliases.add(item);
-          } else if (rt.startsWith("template ") && !rt.startsWith("template<") && !rt.startsWith("template <")) {
-            preNs.append(CodeGen.generateNode(item, 0));
-          } else if (rt.startsWith("extern template ")) {
-            preNs.append(CodeGen.generateNode(item, 0));
-          } else if (rt.startsWith("namespace ") && rt.contains(" = ")) {
-            deferredAliases.add(item);
-          } else if (isFileScopePreprocessorLine(pl)) {
-            preNs.append(CodeGen.generateNode(item, 0));
-          } else {
-            out.append(CodeGen.generateNode(item, 0));
-          }
-        } else if (item instanceof NamespaceDecl nd) {
-          // User namespace: emit inside namespace Processing.
-          // CodeGen injects "using namespace ::std" inside namespace bodies
-          // so std:: resolves to global ::std not Processing::std.
-          // std specializations (namespace std { ... }) go to preNs (global scope).
-          if (nd.name().equals("std")) {
-              preNs.append(CodeGen.generateNode(nd, 0));
-          } else {
-              out.append(CodeGen.generateNode(nd, 0));
-          }
-        } else if (item instanceof UsingNamespaceDecl) {
-          out.append(CodeGen.generateNode(item, 0));
-        } else {
-          sketchMembers.add(item);
-        }
-      }
-
-      // Step 8: emit in the same order the original's StringBuilder
-      // concatenation used: forward decls, enums, hoisted vars, hoisted
-      // arrays, hoisted classes, hoisted functions, then struct Sketch
-      // wrapping everything left in sketchMembers (depResult.rest minus
-      // the file-scope-only items already emitted above).
-      for (var e : enumResult.enums) out.append(CodeGen.generateNode(e, 0));
-      for (FunctionDecl fd : forwardDecls) out.append(CodeGen.generateNode(fd, 0));
-      for (var v : arrayResult.hoistedSizingConstants) out.append(CodeGen.generateNode(v, 0));
-      // Emit hoisted dependency variables BEFORE class definitions so
-      // hoisted classes can reference them (e.g. FloatList readings used by SensorBank).
-      java.util.Set<String> autoHoistedNames2 = new java.util.HashSet<>();
-      for (TopLevelItem av : autoHoisted) if (av instanceof VariableDecl avd2) autoHoistedNames2.add(avd2.name());
-      for (var v : depResult.hoistedVariables) {
-        if (!autoHoistedNames2.contains(v.name())) out.append(CodeGen.generateNode(v, 0));
-      }
-      // Forward-declare every hoisted class before any definitions -- handles
-      // cross-references between classes (e.g. Liquid::contains(Mover*) when
-      // Liquid is emitted before Mover). Template classes can't be forward-declared
-      // this way, but user template classes are rare enough that this is fine.
-      for (TypeDef td : finalClasses) {
-        if (RESERVED_TYPES.contains(td.name())) continue; // engine already defines this
-        if (td.templateParams().isEmpty() && !td.name().contains("<")) {
-          out.append(td.kind()).append(' ').append(td.name()).append(";\n");
-        }
-      }
-      for (TypeDef td : finalClasses) {
-        if (RESERVED_TYPES.contains(td.name())) continue; // engine already defines this
-        out.append(CodeGen.generateNode(td, 0));
-      }
-      // Emit deferred "using X = ..." type aliases after struct definitions
-      for (TopLevelItem alias : deferredAliases) out.append(CodeGen.generateNode(alias, 0));
-      // Emit auto-hoisted variables at namespace scope
-      for (TopLevelItem av : autoHoisted) out.append(CodeGen.generateNode(av, 0));
-      // hoistedVariables already emitted before class definitions above
-      for (var v : arrayResult.hoistedArrays) out.append(CodeGen.generateNode(v, 0));
-      for (FunctionDecl fd : depResult.hoistedFunctions) out.append(CodeGen.generateNode(fd, 0));
-      // constexprScope (the NOT-PORTED half -- see EnumScopeExtractor's
-      // javadoc) intentionally has no corresponding emission here, since
-      // nothing in the pipeline currently extracts it; any constexpr/
-      // static_assert/using-alias declaration a sketch might contain
-      // simply stays in sketchMembers and is emitted as an ordinary
-      // Sketch member below, which is a behavior difference from the
-      // original ONLY for a construct with zero confirmed real-sketch
-      // usage (see EnumScopeExtractor's javadoc for the corpus check).
-
-      // Hoist template-related items that cannot legally be Sketch members.
-      // Type specializations (TypeName<int> etc.) must be at file scope.
-      // VariableDecl with templated types (Constant<42> c1) must also be hoisted.
-      // Variable templates (constexpr T pi = T(3.14)) can't be struct members.
-      {
-        List<TopLevelItem> templateScopeItems = new ArrayList<>();
-        List<TopLevelItem> remaining = new ArrayList<>();
-        for (TopLevelItem item : sketchMembers) {
-          boolean isTypeSpec = item instanceof TypeDef td && td.name().contains("<");
-          boolean isTemplatedVar = item instanceof VariableDecl vd
-              && !vd.templateParams().isEmpty();
-          // Template-instantiated vars (e.g. ArrayList<Ball> balls) must be at namespace
-          // scope unless their initializer references sketch member variables.
-          // If initializer is a CallExpr with args, keep in sketch to avoid
-          // "segments not declared" errors (Array<Ground*> ground(segments)).
-          // Template-instantiated variables (ArrayList<Ball>, Array<Ground*>, etc.)
-          // are valid struct members -- do NOT hoist them to namespace scope.
-          // Only variable TEMPLATES (template<typename T> T pi = ...) need hoisting.
-          boolean isTemplateInstVar = false;
-          if (isTypeSpec || isTemplatedVar || isTemplateInstVar) {
-            templateScopeItems.add(item);
-          } else {
-            remaining.add(item);
-          }
-        }
-        for (TopLevelItem item : templateScopeItems) out.append(CodeGen.generateNode(item, 0));
-        sketchMembers = remaining;
-      }
-
-      // Strip user-written forward declarations from sketchMembers when
-      // a bodied definition of the same function also exists. Inside a
-      // C++ struct, members have full mutual visibility -- a forward decl
-      // is not only redundant but a redeclaration error if the definition
-      // is also a member. Found via Follow1.pde: "cannot be overloaded with
-      // 'void Sketch::segment(float,float,float)'" -- the user wrote
-      // "void segment(float x, float y, float a);" to enable forward-calling
-      // in plain C style, which is fine at file scope but illegal inside a class.
-      Set<String> definedFunctions = new java.util.HashSet<>();
-      for (TopLevelItem item : sketchMembers) {
-        if (item instanceof FunctionDecl fd && fd.body() != null) {
-          definedFunctions.add(fd.name() + "/" + fd.params().size());
-        }
-      }
-      sketchMembers.removeIf(item ->
-        item instanceof FunctionDecl fd
-        && fd.body() == null
-        && !fd.isPureVirtual()
-        && definedFunctions.contains(fd.name() + "/" + fd.params().size())
-      );
-
-      // Hoist TopLevelStatements (structured bindings, explicit instantiations) to namespace scope
-      List<TopLevelItem> nsHoisted = new ArrayList<>();
-      List<TopLevelItem> realMembers = new ArrayList<>();
-      for (TopLevelItem item : sketchMembers) {
-        if (item instanceof TopLevelStatement) {
-          nsHoisted.add(item);
-        } else {
-          realMembers.add(item);
-        }
-      }
-      for (TopLevelItem item : nsHoisted) out.append(CodeGen.generateNode(item, 0));
-      out.append("struct Sketch : public PApplet {\n");
-      for (TopLevelItem item : realMembers) {
-        out.append(CodeGen.generateNode(item, 1));
-      }
-      out.append("};\n");
+    tabStartLines = new int[tabCount];
+    int line = 1;
+    for (int i = 0; i < tabCount; i++) {
+      tabStartLines[i] = line;
+      String prog = sketch.getCode(i).getProgram();
+      if (prog == null) prog = "";
+      raw.append(prog).append("\n");
+      for (int k = 0; k < prog.length(); k++) if (prog.charAt(k) == '\n') line++;
+      line++;
     }
 
-    out.append("void setup() { if(PApplet::g_papplet) PApplet::g_papplet->setup(); }\n");
-    out.append("void draw()  { if(PApplet::g_papplet) PApplet::g_papplet->draw();  }\n");
-    out.append("void settings() { if(PApplet::g_papplet) PApplet::g_papplet->settings(); }\n");
+    // 2. Sanitise
+    String sanitised = sanitise(raw.toString());
 
-    out.append("} // namespace Processing\n");
-    out.append("\n");
-    out.append("#ifdef _WIN32\n");
-    out.append("#include <windows.h>\n");
-    out.append("int main() {\n");
-    out.append("    #ifdef _WIN32\n");
-    out.append("    ::FreeConsole();\n");
-    out.append("    #endif\n");
-    out.append("    Processing::Sketch sketch;\n");
-    out.append("    sketch.run();\n");
-    out.append("    return 0;\n");
-    out.append("}\n");
-    out.append("#else\n");
-    out.append("int main(int argc, char** argv) {\n");
-    out.append("    Processing::Sketch sketch;\n");
-    out.append("    sketch.run();\n");
-    out.append("    return 0;\n");
-    out.append("}\n");
-    out.append("#endif\n");
+    // 3-5. Parse → analyse → emit
+    TsEngine engine = TsEngine.getOrNull();
+    if (engine == null) throw new Exception("tree-sitter native library not available — rebuild the .so in native/");
+    String cpp;
+    try (TsEngine.ParseResult result = engine.parse(sanitised)) {
+      if (result.hasErrors()) {
+        // Tree-sitter error-recovery means we still get a partial tree;
+        // proceed but mark the line for the editor.
+        // (g++ will produce a clearer error message anyway.)
+        listener.statusNotice("Parse warnings — proceeding with partial tree.");
+      }
+      SketchAnalysis analysis = SketchAnalyzer.analyse(result);
+      headerLineCount = 0; // #line directives map errors to sketch lines
+      cpp = SketchEmitter.emit(analysis, result);
+    }
 
-    File dest = new File(buildDir, "Sketch_run.cpp");
-    String outStr = out.toString();
-    // Restore noexcept on coroutine promise methods (parser drops noexcept specifier)
-    outStr = outStr.replaceAll("(\\bfinal_suspend\\b[^{;]*)(\\{)", "$1noexcept $2");
-    outStr = outStr.replaceAll("(\\binitial_suspend\\b[^{;]*)(\\{)", "$1noexcept $2");
-    Files.writeString(dest.toPath(), outStr);
-    return dest;
+    // 6. Write
+    buildDir.mkdirs();
+    File out = new File(buildDir, "Sketch_run.cpp");
+    Files.writeString(out.toPath(), cpp);
+    return out;
   }
 
-  // Hoist only class/struct definitions (same logic as hoistClasses but returns just the class blocks)
-  /**
-   * Structured representation of one top-level declaration found by
-   * classifyTopLevelDecls(). Every later hoisting pass (classes, enums,
-   * functions, arrays, plain variables) should consume THIS shared list
-   * instead of re-scanning raw text with its own bespoke regex -- the
-   * scanning (comment/string-skipping, brace/bracket-depth tracking) is
-   * done exactly ONCE here, correctly, and every downstream pass just
-   * filters/reads already-extracted fields instead of re-deriving them.
-   */
-  static class TopLevelDecl {
-    enum Kind { CLASS_OR_STRUCT, ENUM, FUNCTION, ARRAY_VAR, PLAIN_VAR, OBJECT_DIRECT_INIT, OTHER }
-    Kind kind;
-    String fullText;   // exact original source text of this declaration, including trailing ;
-    String typeName;   // element/return type (best-effort)
-    String name;       // variable/function/class name
-    String sizeExpr;   // ARRAY_VAR only: text inside [ ] -- empty string, a digit, or an identifier
-    boolean isConst;    // PLAIN_VAR only: declared with const/constexpr/static (any combination)
-    int startPos, endPos; // position in the source this was found in
-  }
+  // ── Sanitisation (kept as minimal string-level cleanup) ───────────────────
 
   /**
-   * Walk `code` once, character-by-character, skipping comments and
-   * string/char literals correctly, and classify every top-level
-   * (4-space-indented, i.e. inside struct Sketch) statement into a
-   * TopLevelDecl. This does NOT hoist anything itself -- it just produces
-   * a structured list that hoisting passes can filter and act on without
-   * needing their own regex.
+   * Minimal pre-parse sanitisation.  Unlike the old regex pipeline, this
+   * does NOT transform the sketch semantics — it only normalises encoding
+   * artefacts that tree-sitter would otherwise reject or misparse.
    */
-  /**
-   * Returns a copy of `code` with the CONTENTS of every line comment,
-   * block comment, and string/char literal replaced by spaces of the
-   * same length (newlines preserved as-is). Every character's POSITION
-   * is unchanged -- only what's inside comments/literals is blanked out.
-   *
-   * This exists so that any regex-based scan (the kind CppBuild has many
-   * of, for detecting things like "name = new Type(...)" assignments)
-   * can run against the RETURN VALUE of this function instead of raw
-   * `code`, and be automatically immune to false-positive matches inside
-   * comments or string literals -- e.g. a comment that says
-   * "// like obj = new Foo()" can no longer be mistaken for a real
-   * assignment statement, since by the time the regex runs, that text
-   * has already been replaced with blank spaces.
-   *
-   * This does NOT replace classifyTopLevelDecls() for detecting actual
-   * DECLARATIONS (which needs real structural parsing -- brace/bracket
-   * depth, statement boundaries) -- it's a lighter-weight tool for scans
-   * that only need "find text matching this shape, but not inside a
-   * comment or string," which covers most of CppBuild's regex-based
-   * passes that aren't already using the classifier.
-   */
-  private static String blankCommentsAndLiterals(String code) {
-    StringBuilder out = new StringBuilder(code.length());
-    int n = code.length(), i = 0;
-    while (i < n) {
-      char c = code.charAt(i);
-      if (c == '/' && i+1 < n && code.charAt(i+1) == '/') {
-        int eol = code.indexOf('\n', i);
-        int end = (eol < 0) ? n : eol;
-        for (int k = i; k < end; k++) out.append(' ');
-        i = end;
-        continue;
-      }
-      if (c == '/' && i+1 < n && code.charAt(i+1) == '*') {
-        int close = code.indexOf("*/", i+2);
-        int end = (close < 0) ? n : close + 2;
-        for (int k = i; k < end; k++) out.append(code.charAt(k) == '\n' ? '\n' : ' ');
-        i = end;
-        continue;
-      }
-      if (c == '"') {
-        int j = i + 1;
-        while (j < n && code.charAt(j) != '"') { if (code.charAt(j) == '\\') j++; j++; }
-        int end = Math.min(j + 1, n);
-        for (int k = i; k < end; k++) out.append(code.charAt(k) == '\n' ? '\n' : ' ');
-        i = end;
-        continue;
-      }
-      if (c == '\'') {
-        int j = i + 1;
-        while (j < n && code.charAt(j) != '\'') { if (code.charAt(j) == '\\') j++; j++; }
-        int end = Math.min(j + 1, n);
-        for (int k = i; k < end; k++) out.append(code.charAt(k) == '\n' ? '\n' : ' ');
-        i = end;
-        continue;
-      }
-      out.append(c);
-      i++;
-    }
-    return out.toString();
+  public static String sanitise(String src) {
+    // Strip BOM
+    if (src.startsWith("\uFEFF")) src = src.substring(1);
+
+    // Normalise Windows line endings
+    src = src.replace("\r\n", "\n").replace("\r", "\n");
+
+    // C++14 digit separator hack: remove ' between hex/binary digits
+    // (tree-sitter-cpp supports them, but some g++ versions don't)
+    src = src.replaceAll("(?<=[0-9a-fA-FxXbB])'(?=[0-9a-fA-F])", "");
+
+    return src;
   }
 
-  private static java.util.List<TopLevelDecl> classifyTopLevelDecls(String code) {
-    java.util.List<TopLevelDecl> result = new java.util.ArrayList<>();
-    int n = code.length(), i = 0;
-    while (i < n) {
-      // Skip blank/whitespace-only stretches between statements
-      int lineStart = i;
-      // Only consider lines starting with exactly 4-space indent (Sketch body)
-      if (i + 4 > n || !code.startsWith("    ", i) ||
-          (i > 0 && code.charAt(i-1) != '\n' && i != 0)) {
-        i++;
-        continue;
-      }
-      // Confirm this position is truly the start of a line
-      if (i > 0 && code.charAt(i-1) != '\n') { i++; continue; }
+  // ── Error pattern ─────────────────────────────────────────────────────────
 
-      int contentStart = i + 4;
-      if (contentStart >= n) break;
-      char c0 = code.charAt(contentStart);
-      // Skip comment-only or blank lines entirely
-      if (c0 == '\n') { i = contentStart + 1; continue; }
-      if (c0 == '/' && contentStart+1 < n && code.charAt(contentStart+1) == '/') {
-        int eol = code.indexOf('\n', contentStart);
-        i = (eol < 0) ? n : eol + 1;
-        continue;
-      }
+  private static final Pattern ERR_LINE = Pattern.compile(
+      "sketch\\.pde:(\\d+):\\d+:\\s+error:");
 
-      // Skip a block comment that starts this line, INCLUDING multi-line
-      // ones (e.g. a "/**...*/" Javadoc-style header comment at the top of
-      // a sketch). Without this, the comment's opening line is treated as
-      // the start of "the next statement," and since the main scanning
-      // loop below skips comments internally without resetting what
-      // counts as the declaration's start, the comment and the REAL
-      // following statement (e.g. "const int num = 60;") get merged into
-      // one unrecognized OTHER blob -- making that constant invisible to
-      // every later pass that needs to find it by name.
-      if (c0 == '/' && contentStart+1 < n && code.charAt(contentStart+1) == '*') {
-        int end = code.indexOf("*/", contentStart+2);
-        i = (end < 0) ? n : end + 2;
-        while (i < n && code.charAt(i) != '\n' && (code.charAt(i)==' '||code.charAt(i)=='\t')) i++;
-        if (i < n && code.charAt(i) == '\n') i++;
-        continue;
-      }
-      // Find the end of this logical statement: walk forward tracking
-      // (), [], {}, and skipping strings/chars/comments, until we hit a
-      // top-level ';' or '{' (the latter meaning class/enum/function body).
-      int depthParen = 0, depthBracket = 0, depthBrace = 0;
-      int j = contentStart;
-      int firstBrace = -1, firstBracket = -1, firstParen = -1;
-      while (j < n) {
-        char c = code.charAt(j);
-        if (c == '/' && j+1 < n && code.charAt(j+1) == '/') {
-          int eol = code.indexOf('\n', j); j = (eol < 0) ? n : eol; continue;
-        }
-        if (c == '/' && j+1 < n && code.charAt(j+1) == '*') {
-          int end = code.indexOf("*/", j+2); j = (end < 0) ? n : end + 2; continue;
-        }
-        if (c == '"') {
-          j++; while (j < n && code.charAt(j) != '"') { if (code.charAt(j) == '\\') j++; j++; } j++; continue;
-        }
-        if (c == '\'') {
-          j++; while (j < n && code.charAt(j) != '\'') { if (code.charAt(j) == '\\') j++; j++; } j++; continue;
-        }
-        if (c == '(') { if (depthParen==0 && firstParen<0) firstParen=j; depthParen++; }
-        else if (c == ')') depthParen--;
-        else if (c == '[') { if (depthBracket==0 && firstBracket<0) firstBracket=j; depthBracket++; }
-        else if (c == ']') depthBracket--;
-        else if (c == '{') {
-          if (depthBrace==0 && firstBrace<0) firstBrace=j;
-          depthBrace++;
-        } else if (c == '}') {
-          depthBrace--;
-          if (depthBrace == 0 && firstBrace >= 0) { j++; break; } // end of a {...} body
-        } else if (c == ';' && depthParen==0 && depthBracket==0 && depthBrace==0) {
-          j++; break; // end of a simple statement
-        }
-        j++;
-      }
-      // Consume trailing ';' after a '{...}' body if present (class/struct Foo {...};)
-      int stmtEnd = j;
-      { int k = stmtEnd; while (k < n && (code.charAt(k)==' '||code.charAt(k)=='\t')) k++;
-        if (k < n && code.charAt(k) == ';') stmtEnd = k + 1; }
-
-      String stmtText = code.substring(contentStart, stmtEnd);
-      String fullLineText = code.substring(lineStart, stmtEnd);
-      // Consume the trailing newline too, if present, so re-insertion is clean
-      int afterEnd = stmtEnd;
-      if (afterEnd < n && code.charAt(afterEnd) == '\n') afterEnd++;
-
-      TopLevelDecl d = new TopLevelDecl();
-      d.fullText = code.substring(lineStart, afterEnd);
-      d.startPos = lineStart;
-      d.endPos = afterEnd;
-
-      String trimmed = stmtText.strip();
-      if (trimmed.startsWith("class ") || trimmed.startsWith("struct ")) {
-        d.kind = TopLevelDecl.Kind.CLASS_OR_STRUCT;
-        java.util.regex.Matcher nm = java.util.regex.Pattern.compile("^(?:class|struct)\\s+([A-Za-z_]\\w*)").matcher(trimmed);
-        if (nm.find()) d.name = nm.group(1);
-      } else if (trimmed.startsWith("enum ")) {
-        d.kind = TopLevelDecl.Kind.ENUM;
-        java.util.regex.Matcher nm = java.util.regex.Pattern.compile("^enum(?:\\s+class|\\s+struct)?\\s+([A-Za-z_]\\w*)").matcher(trimmed);
-        if (nm.find()) d.name = nm.group(1);
-      } else if (firstParen >= 0 && firstBrace >= 0 && firstParen < firstBrace
-                 && (firstBracket < 0 || firstParen < firstBracket)) {
-        // "RetType name(...) { ... }" -- a function definition
-        d.kind = TopLevelDecl.Kind.FUNCTION;
-        java.util.regex.Matcher nm = java.util.regex.Pattern.compile(
-          "^(?:[A-Za-z_][\\w:<>,\\s\\*&]*?)\\s+([A-Za-z_]\\w*)\\s*\\(").matcher(trimmed);
-        if (nm.find()) d.name = nm.group(1);
-      } else if (firstBracket >= 0 && (firstBrace < 0 || firstBracket < firstBrace)
-                 && (firstParen < 0 || firstBracket < firstParen)) {
-        // "Type name[sizeExpr];" or "Type name[sizeExpr] = {...};" -- an array
-        d.kind = TopLevelDecl.Kind.ARRAY_VAR;
-        java.util.regex.Matcher am = java.util.regex.Pattern.compile(
-          "^([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\s*\\[\\s*([A-Za-z_0-9]*)\\s*\\]").matcher(trimmed);
-        if (am.find()) { d.typeName = am.group(1); d.name = am.group(2); d.sizeExpr = am.group(3); }
-      } else if (firstParen >= 0 && firstBrace < 0) {
-        // "Type name(arg1, arg2, ...);" -- C++'s "most vexing parse":
-        // direct-initialization syntax is grammatically indistinguishable
-        // from a member-FUNCTION DECLARATION at this scope, and C++
-        // resolves the ambiguity in favor of "it's a function declaration"
-        // every time. Detected here so a later pass can rewrite the parens
-        // to braces (direct-list-initialization), which has no such
-        // ambiguity in C++.
-        d.kind = TopLevelDecl.Kind.OBJECT_DIRECT_INIT;
-        java.util.regex.Matcher om = java.util.regex.Pattern.compile(
-          "^([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\s*\\(").matcher(trimmed);
-        if (om.find()) { d.typeName = om.group(1); d.name = om.group(2); }
-      } else {
-        // Plain variable declaration: "Type name [= expr];"
-        java.util.regex.Matcher vm = java.util.regex.Pattern.compile(
-          "^((?:const\\s+|constexpr\\s+|static\\s+)*)([A-Za-z_][\\w:<>,\\s\\*&]*?)\\s+([A-Za-z_]\\w*)\\s*(?:=.*)?$").matcher(trimmed.replaceAll(";\\s*$",""));
-        if (vm.find()) {
-          d.kind = TopLevelDecl.Kind.PLAIN_VAR;
-          d.isConst = !vm.group(1).isBlank();
-          d.typeName = vm.group(2);
-          d.name = vm.group(3);
-        } else {
-          d.kind = TopLevelDecl.Kind.OTHER;
-        }
-      }
-      result.add(d);
-      i = afterEnd;
-    }
-    return result;
-  }
-
-  private String hoistClassesOnly(String code) {
-    java.util.List<String> classBlocks = new java.util.ArrayList<>();
-    int n = code.length(), i = 0;
-    while (i < n) {
-      if (i+1 < n && code.charAt(i)=='/' && code.charAt(i+1)=='/') {
-        while (i < n && code.charAt(i) != '\n') i++; continue;
-      }
-      if (i+1 < n && code.charAt(i)=='/' && code.charAt(i+1)=='*') {
-        i += 2; while (i+1 < n && !(code.charAt(i)=='*' && code.charAt(i+1)=='/')) i++; i += 2; continue;
-      }
-      if (code.charAt(i)=='"') {
-        i++; while (i < n && code.charAt(i)!='"') { if (code.charAt(i)=='\\') i++; i++; } i++; continue;
-      }
-      if (code.charAt(i)=='\'') {
-        i++; while (i < n && code.charAt(i)!='\'') { if (code.charAt(i)=='\\') i++; i++; } i++; continue;
-      }
-      // Plain "enum Name { ... };" (no "class"/"struct" after "enum") must
-      // still be walked-past correctly here, even though it isn't hoisted by
-      // THIS scanner (enumScope, extracted later from restCode, owns enums).
-      // Without this, the scanner has no concept of "enum" at all, leaves
-      // its position pointer sitting in the middle of the enum's body text,
-      // and the next "class"/"struct" token it stumbles across downstream
-      // gets mistakenly treated as starting exactly where the scan resumed --
-      // silently corrupting both the enum and whatever class came after it.
-      boolean isPlainEnum = i+5 <= n && code.substring(i, Math.min(i+5,n)).equals("enum ")
-                            && !(i+11 <= n && code.substring(i+5, Math.min(i+11,n)).equals("class "))
-                            && !(i+12 <= n && code.substring(i+5, Math.min(i+12,n)).equals("struct "));
-      if (isPlainEnum) {
-        char before = i > 0 ? code.charAt(i-1) : ' ';
-        if (!Character.isLetterOrDigit(before) && before != '_') {
-          int open = i;
-          while (open < n && code.charAt(open) != '{' && code.charAt(open) != ';') open++;
-          if (open < n && code.charAt(open) == '{') {
-            int depth = 0, k = open;
-            while (k < n) {
-              char c = code.charAt(k);
-              if (c=='"') { k++; while (k<n && code.charAt(k)!='"') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='\'') { k++; while (k<n && code.charAt(k)!='\'') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='{') depth++;
-              else if (c=='}') { if (--depth==0) { k++; break; } }
-              k++;
-            }
-            int end = k;
-            while (end < n && (code.charAt(end)==' ' || code.charAt(end)=='\n')) end++;
-            if (end < n && code.charAt(end)==';') end++;
-            i = end; continue; // skip past the whole enum block; do NOT hoist it here
-          }
-        }
-      }
-      boolean isClass  = i+5 <= n && code.substring(i, Math.min(i+5,n)).equals("class");
-      boolean isStruct = i+6 <= n && code.substring(i, Math.min(i+6,n)).equals("struct");
-      if (isClass || isStruct) {
-        int klen = isClass ? 5 : 6;
-        char before = i > 0 ? code.charAt(i-1) : ' ';
-        char after  = i+klen < n ? code.charAt(i+klen) : ' ';
-        // Skip "enum class"/"enum struct" -- handled separately as enumScope
-        boolean precededByEnum = i >= 5 && code.substring(i-5,i).equals("enum ");
-        if (!precededByEnum &&
-            !Character.isLetterOrDigit(before) && before != '_' &&
-            !Character.isLetterOrDigit(after)  && after  != '_') {
-          int open = i;
-          while (open < n && code.charAt(open) != '{' && code.charAt(open) != ';') open++;
-          if (open < n && code.charAt(open) == '{') {
-            int depth = 0, k = open;
-            while (k < n) {
-              char c = code.charAt(k);
-              if (c=='"') { k++; while (k<n && code.charAt(k)!='"') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='\'') { k++; while (k<n && code.charAt(k)!='\'') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='{') depth++;
-              else if (c=='}') { if (--depth==0) { k++; break; } }
-              k++;
-            }
-            int end = k;
-            while (end < n && (code.charAt(end)==' ' || code.charAt(end)=='\n')) end++;
-            if (end < n && code.charAt(end)==';') end++;
-            // Carry template<...> prefix if it immediately precedes this class
-            String classText = code.substring(i, end);
-            // Java/Processing classes don't require a trailing ";" after the
-            // closing brace; C++ does. If the source omitted it, add one now so
-            // the hoisted class is valid standalone C++.
-            if (!classText.strip().endsWith(";")) classText = classText.stripTrailing() + ";\n";
-            String templatePrefix = "";
-            // Look back in code for a template<...> line immediately before position i
-            int lookback = i - 1;
-            while (lookback > 0 && (code.charAt(lookback)==' ' || code.charAt(lookback)=='\n' || code.charAt(lookback)=='\r')) lookback--;
-            int lineEnd = lookback;
-            while (lookback > 0 && code.charAt(lookback) != '\n') lookback--;
-            String prevLine = code.substring(lookback > 0 ? lookback+1 : 0, lineEnd+1).strip();
-            if (prevLine.startsWith("template")) {
-              templatePrefix = prevLine + "\n";
-            }
-            classBlocks.add(templatePrefix + classText);
-            i = end; continue;
-          }
-        }
-      }
-      i++;
-    }
-    // Sort: base classes before derived
-    boolean changed = true;
-    for (int pass = 0; pass < classBlocks.size()*2 && changed; pass++) {
-      changed = false;
-      for (int a = 0; a < classBlocks.size(); a++) {
-        String blockA = classBlocks.get(a);
-        java.util.regex.Matcher mA = java.util.regex.Pattern.compile(
-          "(?:class|struct)\\s+\\w+\\s*:\\s*(?:public|protected|private)\\s+(\\w+)").matcher(blockA);
-        if (!mA.find()) continue;
-        String aBase = mA.group(1);
-        for (int b = a+1; b < classBlocks.size(); b++) {
-          String blockB = classBlocks.get(b);
-          java.util.regex.Matcher mB = java.util.regex.Pattern.compile(
-            "(?:class|struct)\\s+(\\w+)").matcher(blockB);
-          if (mB.find() && mB.group(1).equals(aBase)) {
-            classBlocks.set(a, blockB); classBlocks.set(b, blockA);
-            changed = true; break;
-          }
-        }
-        if (changed) break;
-      }
-    }
-    StringBuilder out = new StringBuilder();
-    for (String b : classBlocks) out.append(b).append("\n\n");
-    return out.toString();
-  }
-
-  // Remove the class blocks that hoistClassesOnly() extracted, leaving the rest
-  private String removeHoistedClasses(String code) {
-    // Re-run the same extraction logic and blank out those ranges
-    java.util.List<int[]> ranges = new java.util.ArrayList<>();
-    int n = code.length(), i = 0;
-    while (i < n) {
-      if (i+1 < n && code.charAt(i)=='/' && code.charAt(i+1)=='/') {
-        while (i < n && code.charAt(i) != '\n') i++; continue;
-      }
-      if (i+1 < n && code.charAt(i)=='/' && code.charAt(i+1)=='*') {
-        i += 2; while (i+1 < n && !(code.charAt(i)=='*' && code.charAt(i+1)=='/')) i++; i += 2; continue;
-      }
-      if (code.charAt(i)=='"') {
-        i++; while (i < n && code.charAt(i)!='"') { if (code.charAt(i)=='\\') i++; i++; } i++; continue;
-      }
-      if (code.charAt(i)=='\'') {
-        i++; while (i < n && code.charAt(i)!='\'') { if (code.charAt(i)=='\\') i++; i++; } i++; continue;
-      }
-      // Plain "enum Name { ... };" (no "class"/"struct" after "enum") must
-      // still be walked-past correctly here, even though it isn't hoisted by
-      // THIS scanner (enumScope, extracted later from restCode, owns enums).
-      // Without this, the scanner has no concept of "enum" at all, leaves
-      // its position pointer sitting in the middle of the enum's body text,
-      // and the next "class"/"struct" token it stumbles across downstream
-      // gets mistakenly treated as starting exactly where the scan resumed --
-      // silently corrupting both the enum and whatever class came after it.
-      boolean isPlainEnum = i+5 <= n && code.substring(i, Math.min(i+5,n)).equals("enum ")
-                            && !(i+11 <= n && code.substring(i+5, Math.min(i+11,n)).equals("class "))
-                            && !(i+12 <= n && code.substring(i+5, Math.min(i+12,n)).equals("struct "));
-      if (isPlainEnum) {
-        char before = i > 0 ? code.charAt(i-1) : ' ';
-        if (!Character.isLetterOrDigit(before) && before != '_') {
-          int open = i;
-          while (open < n && code.charAt(open) != '{' && code.charAt(open) != ';') open++;
-          if (open < n && code.charAt(open) == '{') {
-            int depth = 0, k = open;
-            while (k < n) {
-              char c = code.charAt(k);
-              if (c=='"') { k++; while (k<n && code.charAt(k)!='"') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='\'') { k++; while (k<n && code.charAt(k)!='\'') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='{') depth++;
-              else if (c=='}') { if (--depth==0) { k++; break; } }
-              k++;
-            }
-            int end = k;
-            while (end < n && (code.charAt(end)==' ' || code.charAt(end)=='\n')) end++;
-            if (end < n && code.charAt(end)==';') end++;
-            i = end; continue; // skip past the whole enum block; do NOT hoist it here
-          }
-        }
-      }
-      boolean isClass  = i+5 <= n && code.substring(i, Math.min(i+5,n)).equals("class");
-      boolean isStruct = i+6 <= n && code.substring(i, Math.min(i+6,n)).equals("struct");
-      if (isClass || isStruct) {
-        int klen = isClass ? 5 : 6;
-        char before = i > 0 ? code.charAt(i-1) : ' ';
-        char after  = i+klen < n ? code.charAt(i+klen) : ' ';
-        // Skip "enum class"/"enum struct" -- handled separately as enumScope
-        boolean precededByEnum = i >= 5 && code.substring(i-5,i).equals("enum ");
-        if (!precededByEnum &&
-            !Character.isLetterOrDigit(before) && before != '_' &&
-            !Character.isLetterOrDigit(after)  && after  != '_') {
-          int open = i;
-          while (open < n && code.charAt(open) != '{' && code.charAt(open) != ';') open++;
-          if (open < n && code.charAt(open) == '{') {
-            int depth = 0, k = open;
-            while (k < n) {
-              char c = code.charAt(k);
-              if (c=='"') { k++; while (k<n && code.charAt(k)!='"') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='\'') { k++; while (k<n && code.charAt(k)!='\'') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='{') depth++;
-              else if (c=='}') { if (--depth==0) { k++; break; } }
-              k++;
-            }
-            int end = k;
-            while (end < n && (code.charAt(end)==' ' || code.charAt(end)=='\n')) end++;
-            if (end < n && code.charAt(end)==';') end++;
-            // Also consume a preceding bare "template<...>" line (for template
-            // functions/classes), so it gets blanked out along with the class
-            // body instead of being left as an orphaned, dangling header line
-            // in restCode once the class itself has been removed.
-            int rangeStart = i;
-            {
-              int lookback = i - 1;
-              while (lookback > 0 && (code.charAt(lookback)==' ' || code.charAt(lookback)=='\n' || code.charAt(lookback)=='\r')) lookback--;
-              int lineEndLB = lookback;
-              while (lookback > 0 && code.charAt(lookback) != '\n') lookback--;
-              int lineStartLB = lookback > 0 ? lookback + 1 : 0;
-              String prevLineLB = code.substring(lineStartLB, lineEndLB + 1).strip();
-              if (prevLineLB.startsWith("template")) {
-                rangeStart = lineStartLB;
-              }
-            }
-            ranges.add(new int[]{rangeStart, end});
-            i = end; continue;
-          }
-        }
-      }
-      i++;
-    }
-    if (ranges.isEmpty()) return code;
-    StringBuilder sb = new StringBuilder();
-    int pos = 0;
-    for (int[] r : ranges) {
-      sb.append(code, pos, r[0]);
-      pos = r[1];
-    }
-    sb.append(code, pos, n);
-    return sb.toString();
-  }
-
-  // Rewrite free function definitions as Sketch struct methods.
-  // Lifecycle functions get "override" appended. Everything else becomes a method too.
-  // Variable declarations at top level become struct fields.
-  /**
-   * Remove _PSketch injection from pure data structs (structs with only fields, no methods).
-   * A struct is "pure data" if it has no method bodies â detected by absence of
-   * return-type method signatures inside the struct body.
-   */
-  private String removePSketchFromDataStructs(String code) {
-    // Parse each struct/class block and check if it has methods
-    StringBuilder result = new StringBuilder();
-    int i = 0;
-    while (i < code.length()) {
-      // Look for "_PSketch {" pattern
-      int psk = code.indexOf(": public virtual _PSketch {", i);
-      if (psk < 0) { result.append(code.substring(i)); break; }
-      // Find the struct keyword before this
-      int lineStart = code.lastIndexOf("\n", psk) + 1;
-      String beforeBrace = code.substring(lineStart, psk);
-      // Find the matching closing brace
-      int braceOpen = psk + ": public virtual _PSketch {".length() - 1;
-      int depth = 1, j = braceOpen + 1;
-      while (j < code.length() && depth > 0) {
-        if (code.charAt(j) == '{') depth++;
-        else if (code.charAt(j) == '}') depth--;
-        j++;
-      }
-      String body = code.substring(braceOpen + 1, j - 1);
-      // Check if body has any method signatures (return type + name + '(')
-      // A method has: word whitespace word '(' â e.g. "void update(" or "float distTo("
-      boolean hasMethod = body.matches("(?s).*\\b(void|int|float|bool|double|color|auto|std::\\w+)\\s+\\w+\\s*\\(.*")
-                         && !body.contains("constexpr"); // skip constexpr structs
-      result.append(code, i, lineStart);
-      // Also remove _PSketch from template classes -- they can't use Processing API
-      boolean isTemplate = lineStart > 0 && code.substring(Math.max(0, lineStart - 200), lineStart).contains("template<");
-      // If the class already inherits PApplet directly, skip _PSketch injection
-      // -- it already has width/height/key etc. as members, and injecting
-      // _PSketch proxies would cause ambiguity errors.
-      boolean alreadyInheritsApplet = code.substring(lineStart, braceOpen).contains("PApplet");
-      if (hasMethod && !isTemplate && !alreadyInheritsApplet) {
-        // Keep _PSketch injection
-        result.append(code, lineStart, j);
-      } else {
-        // Remove _PSketch â revert to plain struct/class name {
-        result.append(beforeBrace).append(" {").append(body).append("}");
-      }
-      i = j;
-    }
-    return result.toString();
-  }
-
-  private String rewriteAsSketchMethods(String code, String[] lifecycleMethods) {
-    java.util.Set<String> lifecycle = new java.util.HashSet<>(java.util.Arrays.asList(lifecycleMethods));
-    // Indent each line by 4 spaces (they're now inside struct Sketch { ... })
-    // Lifecycle functions: add "override" to their signature
-    StringBuilder out = new StringBuilder();
-    String[] lines = code.split("\n", -1);
-    for (String line : lines) {
-      String trimmed = line.strip();
-      String indented = "    " + line;
-      // Initialize pointer fields to nullptr
-      if (indented.matches("\\s+\\w[\\w:<>*,\\s]+\\*\\s+\\w+\\s*;")) {
-        indented = indented.replaceFirst(";\\s*$", " = nullptr;");
-      }
-      // Detect lifecycle function definition lines and add "override"
-      for (String lc : lifecycle) {
-        // Match: void setup() { or void setup() \n (with optional spaces)
-        // Pattern: void <name>( at start of trimmed line (not inside a longer name)
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-          "^(\\s*(?:virtual\\s+)?void\\s+" + java.util.regex.Pattern.quote(lc) + "\\s*\\([^)]*\\)\\s*)\\{(.*)\\}\\s*$");
-        java.util.regex.Matcher m = p.matcher(line);
-        if (m.find()) {
-          String bodyContent = m.group(2).strip();
-          if (bodyContent.isEmpty()) {
-            indented = "    " + m.group(1) + "override {}";
-          } else {
-            // Single-line function with body â expand to multi-line
-            indented = "    " + m.group(1) + "override {\n        " + bodyContent + "\n    }";
-          }
-          break;
-        }
-        // Match opening brace only (multi-line body follows)
-        java.util.regex.Pattern p1b = java.util.regex.Pattern.compile(
-          "^(\\s*(?:virtual\\s+)?void\\s+" + java.util.regex.Pattern.quote(lc) + "\\s*\\([^)]*\\)\\s*)\\{\\s*$");
-        java.util.regex.Matcher m1b = p1b.matcher(line);
-        if (m1b.find()) {
-          indented = "    " + m1b.group(1) + "override {";
-          break;
-        }
-        // Also handle: void mouseWheel(int delta) {
-        java.util.regex.Pattern p2 = java.util.regex.Pattern.compile(
-          "^(\\s*(?:virtual\\s+)?void\\s+" + java.util.regex.Pattern.quote(lc) + "\\s*\\([^)]*\\)\\s*)$");
-        java.util.regex.Matcher m2 = p2.matcher(line);
-        if (m2.find()) {
-          indented = "    " + m2.group(1) + "override";
-          break;
-        }
-      }
-      out.append(indented).append("\n");
-    }
-    return out.toString();
-  }
-
-  // Extract class/struct definitions and move them to the top, sorted by inheritance.
-  private String hoistClasses(String code) {
-    java.util.List<String> classBlocks = new java.util.ArrayList<>();
-    StringBuilder rest = new StringBuilder();
-    int n = code.length(), i = 0;
-    while (i < n) {
-      if (i+1 < n && code.charAt(i)=='/' && code.charAt(i+1)=='/') {
-        while (i < n && code.charAt(i) != '\n') i++; continue;
-      }
-      if (i+1 < n && code.charAt(i)=='/' && code.charAt(i+1)=='*') {
-        i += 2; while (i+1 < n && !(code.charAt(i)=='*' && code.charAt(i+1)=='/')) i++; i += 2; continue;
-      }
-      if (code.charAt(i)=='"') {
-        i++; while (i < n && code.charAt(i)!='"') { if (code.charAt(i)=='\\') i++; i++; } i++; continue;
-      }
-      if (code.charAt(i)=='\'') {
-        i++; while (i < n && code.charAt(i)!='\'') { if (code.charAt(i)=='\\') i++; i++; } i++; continue;
-      }
-      boolean isClass  = i+5 <= n && code.substring(i, Math.min(i+5,n)).equals("class");
-      boolean isStruct = i+6 <= n && code.substring(i, Math.min(i+6,n)).equals("struct");
-      if (isClass || isStruct) {
-        int klen = isClass ? 5 : 6;
-        char before = i > 0 ? code.charAt(i-1) : ' ';
-        char after  = i+klen < n ? code.charAt(i+klen) : ' ';
-        if (!Character.isLetterOrDigit(before) && before != '_' &&
-            !Character.isLetterOrDigit(after)  && after  != '_') {
-          int open = i;
-          while (open < n && code.charAt(open) != '{' && code.charAt(open) != ';') open++;
-          if (open < n && code.charAt(open) == '{') {
-            int depth = 0, k = open;
-            while (k < n) {
-              char c = code.charAt(k);
-              if (c=='"') { k++; while (k<n && code.charAt(k)!='"') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='\'') { k++; while (k<n && code.charAt(k)!='\'') { if(code.charAt(k)=='\\') k++; k++; } }
-              else if (c=='{') depth++;
-              else if (c=='}') { if (--depth==0) { k++; break; } }
-              k++;
-            }
-            int end = k;
-            while (end < n && (code.charAt(end)==' ' || code.charAt(end)=='\n')) end++;
-            if (end < n && code.charAt(end)==';') end++;
-            classBlocks.add(code.substring(i, end));
-            i = end; continue;
-          }
-        }
-      }
-      rest.append(code.charAt(i)); i++;
-    }
-    // Sort: base classes before derived
-    boolean changed = true;
-    for (int pass = 0; pass < classBlocks.size()*2 && changed; pass++) {
-      changed = false;
-      for (int a = 0; a < classBlocks.size(); a++) {
-        String blockA = classBlocks.get(a);
-        java.util.regex.Matcher mA = java.util.regex.Pattern.compile(
-          "(?:class|struct)\\s+\\w+\\s*:\\s*(?:public|protected|private)\\s+(\\w+)").matcher(blockA);
-        if (!mA.find()) continue;
-        String aBase = mA.group(1);
-        for (int b = a+1; b < classBlocks.size(); b++) {
-          String blockB = classBlocks.get(b);
-          java.util.regex.Matcher mB = java.util.regex.Pattern.compile(
-            "(?:class|struct)\\s+(\\w+)").matcher(blockB);
-          if (mB.find() && mB.group(1).equals(aBase)) {
-            classBlocks.set(a, blockB); classBlocks.set(b, blockA);
-            changed = true; break;
-          }
-        }
-        if (changed) break;
-      }
-    }
-    StringBuilder out = new StringBuilder();
-    for (String b : classBlocks) out.append(b).append("\n\n");
-    out.append(rest);
-    return out.toString();
-  }
-
-  private String buildForwardDeclarations(String code) {
-    StringBuilder decls = new StringBuilder();
-    Matcher m = FUNC_DEF.matcher(code);
-    while (m.find()) {
-      String name = m.group(2).trim();
-      if (!LIFECYCLE.contains(name)) {
-        decls.append(m.group(1).trim())
-             .append(" ").append(name)
-             .append("(").append(m.group(3).trim()).append(");\n");
-      }
-    }
-    return decls.toString();
-  }
-
-  private void warnReservedNames(String code, RunnerListener listener) {
-    for (String name : RESERVED) {
-      if (java.util.regex.Pattern.compile("\\b" + name + "\\s*=", java.util.regex.Pattern.MULTILINE).matcher(code).find())
-        listener.statusNotice("[WARN] '" + name +
-          "' is a C stdlib name â consider renaming your variable.");
-    }
-  }
-
-  private String removeUserIncludes(String code) {
-    return code
-      .replaceAll("(?m)^\\s*#include\\s+[\"<]Processing\\.h[\">]\\s*$\\n?", "")
-      .replaceAll("(?m)^\\s*#include\\s+[\"<]Processing\\.cpp[\">]\\s*$\\n?", "");
-  }
-
-  private String stripNamespaceProcessing(String code) {
-    Pattern p = Pattern.compile("namespace\\s+Processing\\s*\\{", Pattern.MULTILINE);
-    Matcher m = p.matcher(code);
-    if (!m.find()) return code;
-    int open = code.indexOf('{', m.start());
-    if (open < 0) return code;
-    int depth = 0, close = -1;
-    for (int i = open; i < code.length(); i++) {
-      char c = code.charAt(i);
-      if (c == '{') depth++;
-      else if (c == '}' && --depth == 0) { close = i; break; }
-    }
-    if (close < 0) return code;
-    return code.substring(0, m.start())
-         + code.substring(open + 1, close)
-         + code.substring(close + 1);
-  }
-
-  private String sanitize(String code) {
-    if (code.startsWith("\uFEFF")) code = code.substring(1);
-    return code
-      .replace('\u2018', '\'').replace('\u2019', '\'')
-      .replace('\u201C', '"') .replace('\u201D', '"')
-      .replace('\u2013', '-') .replace('\u2014', '-');
-  }
-
-
-  // Replace keywords only outside string/char literals and comments
-  private String replaceKeywordsOutsideLiterals(String code, String[][] replacements) {
-    StringBuilder out = new StringBuilder();
-    int i = 0, n = code.length();
-    while (i < n) {
-      char c = code.charAt(i);
-      // Line comment -- copy to end of line verbatim
-      if (c == '/' && i+1 < n && code.charAt(i+1) == '/') {
-        int end = code.indexOf('\n', i);
-        if (end < 0) end = n;
-        out.append(code, i, end);
-        i = end;
-        continue;
-      }
-      // Block comment -- copy verbatim
-      if (c == '/' && i+1 < n && code.charAt(i+1) == '*') {
-        int end = code.indexOf("*/", i+2);
-        if (end < 0) end = n; else end += 2;
-        out.append(code, i, end);
-        i = end;
-        continue;
-      }
-      // String literal -- copy verbatim
-      if (c == '"') {
-        out.append(c); i++;
-        while (i < n) {
-          char sc = code.charAt(i);
-          out.append(sc); i++;
-          if (sc == '\\' && i < n) { out.append(code.charAt(i++)); continue; }
-          if (sc == '"') break;
-        }
-        continue;
-      }
-      // Char literal -- copy verbatim
-      if (c == '\'') {
-        out.append(c); i++;
-        while (i < n) {
-          char sc = code.charAt(i);
-          out.append(sc); i++;
-          if (sc == '\\' && i < n) { out.append(code.charAt(i++)); continue; }
-          if (sc == '\'') break;
-        }
-        continue;
-      }
-      // Outside literals: check for keyword match
-      boolean matched = false;
-      for (String[] pair : replacements) {
-        String from = pair[0], to = pair[1];
-        int flen = from.length();
-        if (i + flen <= n && code.substring(i, i+flen).equals(from)) {
-          boolean leftOk  = i == 0 || !Character.isLetterOrDigit(code.charAt(i-1)) && code.charAt(i-1) != '_';
-          boolean rightOk = i+flen >= n || !Character.isLetterOrDigit(code.charAt(i+flen)) && code.charAt(i+flen) != '_';
-          if (leftOk && rightOk) {
-            out.append(to);
-            i += flen;
-            matched = true;
-            break;
-          }
-        }
-      }
-      if (!matched) { out.append(c); i++; }
-    }
-    return out.toString();
-  }
-
-  // Detect variables assigned color()/lerpColor() and fix their type from int to color.
-  // Also propagates through function calls so params that receive color vars become color too.
-  private String fixColorTypes(String code) {
-    // Pass 1: find all variables directly assigned color()/lerpColor()
-    java.util.Set<String> colorVars = new java.util.HashSet<>();
-    Pattern assignPat = Pattern.compile("\\b(\\w+)\\s*=\\s*(?:color|lerpColor)\\s*\\(");
-    Matcher am = assignPat.matcher(code);
-    while (am.find()) colorVars.add(am.group(1));
-
-    // Pass 2: propagate through function calls iteratively until stable
-    boolean changed = true;
-    while (changed) {
-      changed = false;
-      // Find function definitions
-      Pattern fnDef = Pattern.compile(
-        "(?:void|int|float|bool|color)\\s+(\\w+)\\s*\\(([^)]*)\\)",
-        Pattern.MULTILINE);
-      Matcher fd = fnDef.matcher(code);
-      while (fd.find()) {
-        String fnName = fd.group(1);
-        String params  = fd.group(2);
-        // Extract param names
-        List<String> paramNames = new ArrayList<>();
-        for (String p : params.split(",")) {
-          String[] parts = p.trim().split("\\s+");
-          if (parts.length >= 2) paramNames.add(parts[parts.length - 1].replaceAll("[\\[\\]*]",""));
-        }
-        if (paramNames.isEmpty()) continue;
-        // Find calls to this function
-        Pattern callPat = Pattern.compile("\\b" + Pattern.quote(fnName) + "\\s*\\(([^;{]*)\\)");
-        Matcher cm = callPat.matcher(code);
-        while (cm.find()) {
-          String[] args = cm.group(1).split(",");
-          for (int ai = 0; ai < args.length && ai < paramNames.size(); ai++) {
-            String arg = args[ai].trim();
-            if (colorVars.contains(arg) && !colorVars.contains(paramNames.get(ai))) {
-              colorVars.add(paramNames.get(ai));
-              changed = true;
-            }
-          }
-        }
-      }
-    }
-
-    // Pass 3: fix int arrays that hold color values
-    Pattern arrPat = Pattern.compile("\\bint\\s+(\\w+)\\[(\\d+)\\]\\s*=\\s*\\{([^}]*)\\}");
-    Matcher arr = arrPat.matcher(code);
-    StringBuffer sb3 = new StringBuffer();
-    while (arr.find()) {
-      boolean anyColor = false;
-      for (String a : arr.group(3).split(","))
-        if (colorVars.contains(a.trim())) { anyColor = true; break; }
-      if (anyColor) {
-        colorVars.add(arr.group(1));
-        arr.appendReplacement(sb3, "color " + arr.group(1) + "[" + arr.group(2) + "] = {" + arr.group(3) + "}");
-      } else arr.appendReplacement(sb3, arr.group(0));
-    }
-    arr.appendTail(sb3);
-    code = sb3.toString();
-
-    // Pass 4: replace int varname declarations with color varname for all colorVars
-    // Skip variables declared as loop counters or with explicit int literals
-    // to avoid mistyping loop vars like "for (int c = 0; ...)" as color
-    java.util.regex.Pattern forLoopDecl = java.util.regex.Pattern.compile(
-        "\\bfor\\s*\\(\\s*int\\s+(\\w+)");
-    java.util.Set<String> loopVars = new java.util.HashSet<>();
-    java.util.regex.Matcher lm = forLoopDecl.matcher(code);
-    while (lm.find()) loopVars.add(lm.group(1));
-    for (String v : colorVars) {
-      if (loopVars.contains(v)) continue; // skip loop counters
-      if (v.length() == 1) continue; // skip single-letter vars (likely loop counters or params)
-      code = code.replaceAll("\\bint\\s+(" + Pattern.quote(v) + ")\\b", "color $1");
-    }
-
-    return code;
-  }
+  // ── g++ error rewriting ───────────────────────────────────────────────────
 
   /**
-   * Java/Processing has no value-vs-pointer distinction for user-defined
-   * types -- "Foo f; f = new Foo(...);" means f is a REFERENCE to a newly
-   * allocated Foo, and every later "f.method()"/"f.field" is reference
-   * access. A naive translation keeps "Foo f;" as a C++ VALUE declaration
-   * (since that\'s what the text literally says), but then "f = new Foo(...)"
-   * tries to assign a Foo* into a Foo, which fails to compile (no implicit
-   * pointer-to-value conversion, and most user classes correctly have
-   * copy-assignment either deleted or simply not viable for this).
-   *
-   * Fix: detect every variable that is ever assigned via "name = new Type(...)"
-   * anywhere in the source, rewrite its declaration from "Type name;" (or
-   * "Type nameA, nameB;") to "Type* name = nullptr;", and rewrite every
-   * later "name.member" access for that variable to "name->member" to match
-   * pointer semantics, exactly mirroring what Java\'s reference semantics
-   * actually meant in the first place.
+   * Rewrites common g++ error messages to use Processing-friendly language.
+   * Strips "Processing::" namespace prefix from user-visible messages.
    */
-  /**
-   * "Type name[] = { a, b, c };" is an ordinary, fixed-size global in
-   * Java/Processing -- but once CppBuild wraps every top-level global into
-   * a field of struct Sketch, a C-style array sized purely by its
-   * initializer becomes what C++ calls a "flexible array member," which is
-   * only legal as the LAST member of a struct, and never with an
-   * initializer at all. Any such declaration anywhere else (i.e. almost
-   * always, since sketches rarely declare exactly one array as their very
-   * last global) fails to compile.
-   *
-   * Fix: rewrite "Type name[] = { ...N items... };" to
-   * "std::array<Type,N> name = { ...N items... };", which has no such
-   * restriction as a class member. Also rewrite the common companion
-   * idiom "sizeof(name)/sizeof(name[0])" (used to compute element count)
-   * to "name.size()", since std::array exposes that directly and sizeof
-   * no longer makes sense once the type is no longer a raw C array.
-   */
-
-  // [E0004] "Unsupported Java Syntax" category. Detects real Java
-  // array-declaration syntax -- "int[] a = new int[5];", any number of
-  // dimensions ("int[][] grid = new int[5][5];"), any element type
-  // (primitive or class name), and arbitrary whitespace between the
-  // type, the brackets, and the variable name (Java itself allows all
-  // of this; the regex below mirrors that flexibility rather than only
-  // matching the single most common spacing).
-  //
-  // This pattern is real, valid JAVA but is NOT valid C++ at all -- it
-  // fails to even parse as C++ (square brackets after a bare type name,
-  // before the variable name, isn't legal C++ grammar), so without this
-  // check the sketch author would see a confusing, unrelated low-level
-  // syntax error from g++ instead of a direct, actionable message
-  // pointing them at Array<T>, the real CppMode way to write this.
-  //
-  // Scans a comment/string-blanked copy, not raw code, for the same
-  // reason every other text-pattern scan in this file does: a comment
-  // mentioning this exact syntax as an example shouldn't trigger a
-  // build-stopping error.
-  // Replaces the original regex-over-blanked-text scan with the real
-  // token-stream-based check (see CppJavaArrayCheck.java). Same external
-  // contract as before: detailed message to System.err (the persistent
-  // console text area), a short message to listener.statusError() (the
-  // volatile status bar), and a thrown RuntimeException to stop the build
-  // -- callers of this method don't need to change.
-  private String getWebsiteBaseUrl() {
-    try {
-      java.io.File configFile = new java.io.File(mode.getRuntimeDir().getParentFile(), "config/cppmode.properties");
-      if (configFile.exists()) {
-        java.util.Properties props = new java.util.Properties();
-        try (java.io.InputStream in = new java.io.FileInputStream(configFile)) { props.load(in); }
-        String url = props.getProperty("website.base.url", "").trim();
-        if (!url.isEmpty()) return url;
-      }
-    } catch (Exception e) {}
-    return "https://processing-cpp.github.io";
+  public static String rewriteGccError(String msg) {
+    msg = msg.replace("Processing::", "");
+    msg = msg.replace("struct PSketch", "sketch");
+    return msg;
   }
 
-  // [E0005] ArrayList<T>.get() value-copy detection.
-  // Detects: "TypeName var = expr.get(...);" where TypeName is not a pointer.
-  // ArrayList<UserType> stores T* internally so .get() returns T*, not T.
-  private void checkForArrayListGetValueCopy(String code, RunnerListener listener) {
-    List<CppLexerToken> tokens;
-    try {
-      tokens = new CppLexer(code).tokenize();
-    } catch (Exception e) { return; }
-    for (int i = 0; i + 4 < tokens.size(); i++) {
-      CppLexerToken t0 = tokens.get(i);
-      CppLexerToken t1 = tokens.get(i + 1);
-      CppLexerToken t2 = tokens.get(i + 2);
-      // Skip known value-returning types: String (StringList.get returns string by value)
-      java.util.Set<String> valueTypes = java.util.Set.of("String", "string");
-      if (t0.type() == CppLexerTokenType.IDENTIFIER
-          && !valueTypes.contains(t0.text())
-          && t1.type() == CppLexerTokenType.IDENTIFIER
-          && t2.isOp("=")) {
-        int j = i + 3; int depth = 0; boolean foundGet = false;
-        while (j < tokens.size()) {
-          CppLexerToken tj = tokens.get(j);
-          if (tj.isPunct(";") && depth == 0) break;
-          if (tj.isPunct("(") || tj.isPunct("{")) depth++;
-          if (tj.isPunct(")") || tj.isPunct("}")) { if (--depth < 0) break; }
-          if (tj.isPunct(".") && j + 2 < tokens.size()
-              && tokens.get(j + 1).text().equals("get")
-              && tokens.get(j + 2).isPunct("(")) { foundGet = true; break; }
-          j++;
-        }
-        if (foundGet) {
-          int line = t0.line();
-          String url = getWebsiteBaseUrl() + "/error/E0005.html";
-          String msg =
-            "\n[E0005] ArrayList<T>.get() returns T* (pointer), not T by value.\n" +
-            "  Line " + line + ": \"" + t0.text() + " " + t1.text() + " = ...get(...);\"\n" +
-            "  ArrayList<UserType> stores objects as pointers internally.\n" +
-            "  Fix: declare a pointer variable:\n" +
-            "    " + t0.text() + "* " + t1.text() + " = list.get(i);\n" +
-            "  Then use -> instead of .:\n" +
-            "    " + t1.text() + "->field;  " + t1.text() + "->method();\n" +
-            "  Reference: " + url + "\n";
-          System.err.println(msg);
-          listener.statusError("E0005: ArrayList.get() returns pointer -- see console. " + url);
-          throw new AlreadyReportedException("E0005: ArrayList value-copy -- see console.");
-        }
-      }
-    }
-  }
-  // [E0005b] Detect inline .get().field pattern: particles.get(0).x
-  // This is a pointer dereference error -- should use -> not .
-  // Only fires for ArrayList (pointer-storage), not Array (value-storage).
-  // Distinguish by looking at the token before .get(): ArrayList<T> uses
-  // pointer storage and get() returns T*; Array<T> uses value storage and
-  // get() returns T by value, so .field is correct there.
-  private void checkForArrayListGetDotAccess(String code, RunnerListener listener) {
-    List<CppLexerToken> tokens;
-    try { tokens = new CppLexer(code).tokenize(); } catch (Exception e) { return; }
-    for (int i = 0; i + 6 < tokens.size(); i++) {
-      // Pattern: .get( ... ) . IDENTIFIER (not "(") -- member access on get() result
-      if (!tokens.get(i).isPunct(".")) continue;
-      if (!tokens.get(i + 1).text().equals("get")) continue;
-      if (!tokens.get(i + 2).isPunct("(")) continue;
-      // Only fire E0005b when we can positively identify the receiver as ArrayList
-      // (pointer-storage). Array<T> is value-storage and get() returns T by value,
-      // so .field is correct there. Since we have no symbol table, we can't resolve
-      // arbitrary expression types -- so we require a positive signal: the variable
-      // name immediately before .get( must appear in a nearby ArrayList<...> declaration.
-      // If we can't confirm ArrayList, skip -- false negatives are safer than false
-      // positives that block valid code.
-      {
-        // Find the identifier token immediately before this ".get("
-        // It may be: "name.get(" or "name[i].get(" or "fn().get(" etc.
-        // Walk back to find the base name token.
-        int back = i - 1;
-        while (back > 0 && (tokens.get(back).isPunct("]") || tokens.get(back).isPunct(")"))) {
-          String closeStr = tokens.get(back).text();
-          String openStr  = closeStr.equals("]") ? "[" : "(";
-          int bd = 1; back--;
-          while (back >= 0 && bd > 0) {
-            if (tokens.get(back).text().equals(closeStr)) bd++;
-            else if (tokens.get(back).text().equals(openStr)) bd--;
-            back--;
-          }
-        }
-        String baseName = (back >= 0 && tokens.get(back).type() == CppLexerTokenType.IDENTIFIER)
-            ? tokens.get(back).text() : null;
-        // Require positive confirmation: scan nearby tokens for "ArrayList < ... > baseName"
-        boolean confirmedArrayList = false;
-        if (baseName != null) {
-          for (int k = Math.max(0, i - 40); k < Math.min(tokens.size(), i + 5); k++) {
-            if (tokens.get(k).text().equals("ArrayList")
-                && k + 1 < tokens.size() && tokens.get(k+1).isOp("<")) {
-              // Scan forward past the template args to find the variable name
-              int m = k + 2; int ad = 1;
-              while (m < tokens.size() && ad > 0) {
-                if (tokens.get(m).isOp("<")) ad++;
-                else if (tokens.get(m).isOp(">") || tokens.get(m).isOp(">>")) ad--;
-                m++;
-              }
-              // m now points just after ">", optionally "*", then the variable name
-              while (m < tokens.size() && tokens.get(m).isOp("*")) m++;
-              if (m < tokens.size() && tokens.get(m).text().equals(baseName)) {
-                confirmedArrayList = true; break;
-              }
-            }
-          }
-        }
-        if (!confirmedArrayList) continue; // can't confirm ArrayList -- skip
-      }
-      // Consume the get(...) args
-      int j = i + 3; int depth = 1;
-      while (j < tokens.size() && depth > 0) {
-        if (tokens.get(j).isPunct("(")) depth++;
-        else if (tokens.get(j).isPunct(")")) depth--;
-        j++;
-      }
-      // After get(...), check if "." follows (not "->")
-      if (j < tokens.size() && tokens.get(j).isPunct(".")
-          && j + 1 < tokens.size()
-          && tokens.get(j + 1).type() == CppLexerTokenType.IDENTIFIER) {
-        int line = tokens.get(i).line();
-        String field = tokens.get(j + 1).text();
-        String url = getWebsiteBaseUrl() + "/error/E0005.html";
-        String msg =
-          "\n[E0005] .get() returns T* (pointer) -- use -> not . to access members.\n" +
-          "  Line " + line + ": \"...get(...)." + field + "\"\n" +
-          "  Fix: use -> instead of .:\n" +
-          "    list.get(i)->" + field + ";\n" +
-          "  Or store as pointer first:\n" +
-          "    Type* p = list.get(i);  p->" + field + ";\n" +
-          "  Reference: " + url + "\n";
-        System.err.println(msg);
-        listener.statusError("E0005: use -> not . after ArrayList.get() -- see console. " + url);
-        throw new AlreadyReportedException("E0005: .get().field -- see console.");
-      }
-    }
-  }
+  // ── Compiler command construction ─────────────────────────────────────────
 
-  // [E0006] Java static method/field call syntax: ClassName.member must be ClassName::member in C++
-  //
-  // Generalized rule: any identifier that starts with an uppercase letter followed
-  // by a "." and then another identifier (with optional "(") is likely a Java
-  // static access pattern. This covers:
-  //   Integer.parseInt(...)    -> Integer::parseInt(...)
-  //   Math.PI                  -> Math::PI (or just PI)
-  //   MyClass.CONSTANT         -> MyClass::CONSTANT
-  //   Collections.sort(...)    -> Collections::sort(...) or std::sort
-  //
-  // Excluded: known instance-access patterns where the variable name
-  // happens to start with uppercase (e.g. PImage, PFont, PVector variables).
-  private void checkForJavaStaticCallSyntax(String code, RunnerListener listener) {
-    List<CppLexerToken> tokens;
-    try { tokens = new CppLexer(code).tokenize(); } catch (Exception e) { return; }
-    // Types known to be used as instances (not static-only classes)
-    java.util.Set<String> instanceTypes = java.util.Set.of(
-        "PImage", "PFont", "PVector", "PShape", "PGraphics",
-        "ArrayList", "IntList", "FloatList", "StringList",
-        "String", "Array", "Table", "TableRow", "JSONObject", "JSONArray",
-        "PrintWriter", "BufferedReader", "XML"
-    );
-    // Definitely-static classes (always trigger E0006)
-    java.util.Set<String> staticClasses = java.util.Set.of(
-        "Integer", "Float", "Double", "Long", "Boolean", "Character",
-        "Byte", "Short", "Math", "Arrays", "Collections", "System",
-        "Thread", "Runtime", "Class", "Objects"
-    );
-    for (int i = 0; i + 2 < tokens.size(); i++) {
-      CppLexerToken t0 = tokens.get(i);
-      CppLexerToken t1 = tokens.get(i + 1);
-      CppLexerToken t2 = tokens.get(i + 2);
-      // Pattern: IDENTIFIER . IDENTIFIER where first IDENTIFIER starts uppercase
-      if (t0.type() != CppLexerTokenType.IDENTIFIER) continue;
-      if (!t1.isPunct(".")) continue;
-      if (t2.type() != CppLexerTokenType.IDENTIFIER) continue;
-      String firstName = t0.text();
-      if (firstName.isEmpty() || !Character.isUpperCase(firstName.charAt(0))) continue;
-      if (instanceTypes.contains(firstName)) continue; // known instance type
-      // Single-letter uppercase = almost certainly a template param (T, S, U, K, V, etc.)
-      if (firstName.length() == 1) continue;
-      // Two-letter uppercase combos commonly used as template params: Ts, Vs, etc.
-      if (firstName.length() == 2 && Character.isLowerCase(firstName.charAt(1))) continue;
-      // Only fire for known static classes OR if preceded by nothing
-      // (i.e. not "obj.UpperMethod()" which is a method call)
-      // Check context: if previous token is ")", "]", or identifier, skip
-      boolean preceded = i > 0 && (
-          tokens.get(i-1).isPunct(")")
-          || tokens.get(i-1).isPunct("]")
-          || tokens.get(i-1).isPunct(">")
-          || tokens.get(i-1).type() == CppLexerTokenType.IDENTIFIER);
-      if (preceded && !staticClasses.contains(firstName)) continue;
-      // Check that next token after t2 is "(" or nothing method-like
-      boolean isCall = i + 3 < tokens.size() && tokens.get(i + 3).isPunct("(");
-      boolean isField = !isCall; // field access like Math.PI
-      if (!staticClasses.contains(firstName) && !isCall) continue; // only fire on known statics for field access
-      int line = t0.line();
-      String url = getWebsiteBaseUrl() + "/error/E0006.html";
-      String access = t2.text() + (isCall ? "(...)" : "");
-      String msg =
-        "\n[E0006] Java static access syntax is not valid in C++.\n" +
-        "  Line " + line + ": \"" + firstName + "." + access + "\"\n" +
-        "  In C++, static members use :: not .:\n" +
-        "    " + firstName + "::" + access + "\n" +
-        "  Reference: " + url + "\n";
-      System.err.println(msg);
-      listener.statusError("E0006: use " + firstName + "::" + t2.text() + " not . -- see console");
-      throw new AlreadyReportedException("E0006: Java static access syntax -- see console.");
-    }
-  }
-
-  // [E0007] Variable name collides with Processing API function name
-  private void checkForProcessingNameCollisions(String code, RunnerListener listener) {
-    // Match variable declarations: "type name" or "type name =" at statement start
-    java.util.regex.Pattern varDecl = java.util.regex.Pattern.compile(
-        "\\b(?:int|float|bool|double|char|auto|color|String)\\s+("
-        + String.join("|", PROCESSING_API_NAMES)
-        + ")\\b");
-    java.util.regex.Matcher m = varDecl.matcher(code);
-    while (m.find()) {
-      String name = m.group(1);
-      // Find line number
-      int line = 1;
-      for (int i = 0; i < m.start(); i++) if (code.charAt(i) == '\n') line++;
-      String url = getWebsiteBaseUrl() + "/error/E0007.html";
-      String msg =
-        "\n[E0007] Variable name '" + name + "' shadows the Processing type 'color'.\n"
-        + "  Line " + line + ": this causes type inference errors. Rename to e.g. 'col', 'clr', or 'c2'.\n"
-        + "  Reference: " + url + "\n";
-      System.err.println(msg);
-      listener.statusError("E0007: '" + name + "' shadows Processing API -- see console");
-      throw new AlreadyReportedException("E0007: variable name shadows Processing API");
-    }
-  }
-
-
-
-  private void checkForUnsupportedJavaArraySyntax(String code, RunnerListener listener) {
-    try {
-      CppJavaArrayCheck.check(code);
-    } catch (CppJavaArrayCheck.E0004Exception e) {
-      System.err.println(e.getMessage());
-      listener.statusError("E0004: Unsupported Java array syntax -- see console for details.");
-      throw new AlreadyReportedException("E0004: Unsupported Java array syntax -- see console for details.");
-    }
-  }
-
-  /**
-   * Expands Java's diamond operator in common patterns:
-   *   "ArrayList<T> x = new ArrayList<>();"  ->  "ArrayList<T> x = new ArrayList<T>();"
-   * Scans line by line; extracts the LHS template args and inserts them into <> on RHS.
-   */
-  private String expandDiamondOperator(String code) {
-    // "ArrayList<Particle> x = new ArrayList<>();" -> "ArrayList<Particle> x = ArrayList<Particle>();"
-    // Pattern: TypeName<Args> varName = new TypeName<>()
-    java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-        "(\\w+)(<[^<>]+>)(\\s+\\w+\\s*=\\s*)new\\s+\\w+<>\\s*\\(");
-    java.util.regex.Matcher m = p.matcher(code);
-    StringBuffer sb = new StringBuffer();
-    while (m.find()) {
-      // Replace "new TypeName<>(" with "TypeName<Args>("
-      String replacement = m.group(1) + m.group(2) + m.group(3) + m.group(1) + m.group(2) + "(";
-      m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
-    }
-    m.appendTail(sb);
-    // Simpler line-by-line approach for the common case
-    String result = sb.toString();
-    // Replace any remaining "new TypeName<>()" with "new TypeName()" as fallback
-    result = result.replaceAll("new (\\w+)<>\\(", "new $1(");
-    return result;
-  }
-
-  private String javaToC(String code) {
-    // Expand diamond operator: "ArrayList<T> x = new ArrayList<>()" -> "new ArrayList<T>()"
-    // Scan for pattern: TypeName<Args> varName = new TypeName<>();
-    code = expandDiamondOperator(code);
-    // Strip "new" from value-type assignments: "ArrayList<T> x = new ArrayList<T>()"
-    // Only when the declared type and new type have the same base name (Java idiom).
-    // Do NOT strip when types differ (e.g. "node_ptr n = new node_type(val)")
-    code = stripMatchingNew(code);
-    // Run color type propagation first
-    code = fixColorTypes(code);
-
-    // ââ 1. Whole-word keyword replacements (skip string/char literals) âââââââ
-    String[][] words = {
-      { "boolean",   "bool"        },
-      // Integer/Float/Double/Long/Byte/Character are intentionally NOT
-      // rewritten to their primitive equivalents here -- they're real
-      // Java wrapper classes (Processing.h provides matching C++ wrapper
-      // classes for the same reason String does: real boxing semantics
-      // like nullability, valueOf()/parseXxx() static factories, and
-      // xxxValue() accessors, none of which a bare "int"/"float"/etc.
-      // can express). Rewriting these to plain primitives as text was
-      // the same category of bug as the old String->std::string rename
-      // -- it silently changes what the user's declared type actually
-      // is, breaking any wrapper-specific method call.
-      // "boolean"->"bool" stays as a rename since Java's boolean really
-      // is a primitive (Boolean is the separate wrapper class, not
-      // handled by this list either, for the same reason).
-      // "String" is intentionally NOT renamed to "std::string" here --
-      // String is a real wrapper class (Processing.h) with Java-named
-      // methods (trim(), contains(), toLowerCase(), etc.) that
-      // std::string doesn't have. Renaming "String" to "std::string" as
-      // plain text would silently strip the sketch author's declared
-      // type down to the wrong class, exactly causing methods like
-      // .trim()/.contains() to fail to compile -- the wrapper class
-      // already inherits from std::string and is fully compatible with
-      // it, so there is no reason to rewrite the type name away at all.
-      { "null",      "nullptr"     },
-    };
-    code = replaceKeywordsOutsideLiterals(code, words);
-    // List<T> varname = ... -> std::vector<T> varname = ...
-    code = code.replaceAll("\\bList<", "std::vector<");
-    // .add( -> .push_back(  (vector method)
-    // Note: only when not preceded by a word char to avoid replacing e.g. "loadPixels"
-    // We keep .add() as push_back only for vector types - risky so skip for now
-
-    // ââ 2. Java cast syntax: float(x) â (float)(x) ââââââââââââââââââââââââââ
-    // Java cast syntax: float(x) â (float)(x)
-    // Exclude when inside template args (preceded by < or ,) to avoid
-    // mangling std::function<bool(...)> into std::function<(bool)(...)>
-    for (String t : new String[]{ "float","int","double","long","char","bool" })
-      code = code.replaceAll("(?<![\\w<,\\s])(" + t + ")\\(", "($1)(");
-
-    // ââ 3. Hex color literals: #RRGGBB â color(0xFFRRGGBB) ââââââââââââââââââ
-    code = code.replaceAll("#([0-9A-Fa-f]{8})", "color(0x$1)");
-    code = code.replaceAll("#([0-9A-Fa-f]{6})", "color(0xFF$1)");
-
-    // ââ 4. String concatenation: "literal" + x â std::string("literal") + x â
-    code = code.replaceAll("(\"[^\"]*\")\\s*\\+", "std::string($1) +");
-
-    // ââ 5. .charAt(i) â [i] ââââââââââââââââââââââââââââââââââââââââââââââââââ
-    code = code.replaceAll("\\.charAt\\((\\w+)\\)", "[$1]");
-
-    // ââ 6. .equals("...") â == "..." âââââââââââââââââââââââââââââââââââââââââ
-    code = code.replaceAll("\\.equals\\(([^)]*)\\)", " == $1");
-
-    // ââ 6b. Wrap .length()/.size() in std::to_string() whenever they appear
-    // in a string concatenation context (adjacent to + operator).
-    // Run multiple passes to catch all patterns.
-    for (int _pass = 0; _pass < 3; _pass++) {
-      code = code.replaceAll("\\+\\s*(\\w+)\\.length\\(\\)", "+ std::to_string($1.length())");
-      code = code.replaceAll("(\\w+)\\.length\\(\\)\\s*\\+", "std::to_string($1.length()) +");
-      code = code.replaceAll("\\+\\s*(\\w+)\\.size\\(\\)",   "+ std::to_string($1.size())");
-      code = code.replaceAll("(\\w+)\\.size\\(\\)\\s*\\+",   "std::to_string($1.size()) +");
-    }
-
-    // ââ 7. float % int â (int)(float) % int (modulo on floats invalid in C++) â
-    // BUG FIX, found by tracing a real compile failure (Sequential.pde,
-    // a real example sketch) all the way through every stage of the
-    // pipeline: the original regex, "\(([^)]*\.[^)]*)\)\s*%\s*(\w+)",
-    // matched ANY parenthesized text containing a literal dot character
-    // anywhere inside it, with no requirement that the dot be part of
-    // an actual FLOAT LITERAL -- a member-access dot (as in
-    // "images.get(") satisfies "[^)]*\.[^)]*" just as well as a real
-    // float literal like "0.05f" does. Confirmed precisely: this matched
-    // across "images.get((currentFrame + offset) % numFrames)" --
-    // treating the dot inside "images.get(" and the unrelated "%
-    // numFrames" much later in the SAME statement as if they were one
-    // float-modulo expression -- and rewrote "image(" itself into
-    // "image(int)(", which g++ then correctly rejected ("expected
-    // primary-expression before 'int'"). This was a genuine,
-    // PRE-EXISTING bug, confirmed byte-identical to the very first
-    // CppMode.zip uploaded at the start of this whole project -- never
-    // introduced by anything built during this project, only found now
-    // by tracing a real user-reported failure through every single
-    // stage of the real pipeline (parser, every AST pass, codegen, all
-    // confirmed correct via direct reflection against the real deployed
-    // jar) until this regex -- untouched since day one -- was the only
-    // remaining place left to check.
-    //
-    // Narrowed to require an actual float-LITERAL-shaped token
-    // (\d+\.\d+ or \.\d+, optionally with an f/F suffix) inside the
-    // parens, which is what this rule is actually meant to detect --
-    // confirmed against Objects.pde's real, legitimate, ALREADY-
-    // correctly-cast example ("(width*0.05f) % width") that this
-    // pattern is designed to help authors avoid forgetting -- not "any
-    // dot anywhere," which is true of any member access, scoped name,
-    // or qualified call and was never specific to floats at all.
-    code = code.replaceAll("\\(([^)]*\\d+\\.\\d+f?[^)]*|[^)]*\\.\\d+f?[^)]*)\\)\\s*%\\s*(\\w+)", "(int)($1) % $2");
-
-    // ââ 8. Windows reserved: far/near â farVal/nearVal (Windows only) ââââââââ
-    if (System.getProperty("os.name").toLowerCase().contains("win")) {
-      code = code.replaceAll("\\bfar\\b",  "farVal");
-      code = code.replaceAll("\\bnear\\b", "nearVal");
-    }
-
-    // (color type fixing handled by fixColorTypes() before javaToC())
-
-    // ââ 10. color() ambiguity: color(r,g,b,floatAlpha) â cast last arg âââââââ
-    code = code.replaceAll(
-      "\\bcolor\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*([^)\\d][^)]*)\\)",
-      "color($1,$2,$3,(int)($4))");
-
-    // ââ 11. API-conflicting variable names: scale/fill/stroke/etc. âââââââââââ
-    // If used as a variable (after a type keyword), rename to avoid shadowing API
-    String[] apiConflicts = {
-      // Drawing
-      "arc", "box", "circle", "ellipse", "line", "point", "rect",
-      "square", "triangle", "vertex", "curve", "bezier",
-      // Color
-      "alpha", "blue", "brightness", "green", "hue", "red", "saturation",
-      "fill", "stroke", "background", "tint", "filter",
-      // Transform
-      "scale", "translate", "rotate", "push", "pop",
-      // Math
-      "map", "dist", "noise", "norm", "lerp", "mag", "sq",
-      "constrain", "degrees", "radians", "max", "min",
-      // Image/pixel
-      "image", "get", "set", "save",
-      // Text
-      "text",
-      // Lighting
-      "lights", "ambient", "specular", "emissive", "shininess",
-      // Camera
-      "camera", "perspective", "ortho",
-      // Misc
-      "smooth", "cursor", "loop", "random", "clear"
-    };
-    String typeKw = "(?:int|float|double|bool|char|long|unsigned|auto|color|PVector\\*?|ArrayList\\s*<[^>]+>\\*?|Array\\s*<[^>]+>\\*?)\\s+";
-    for (String word : apiConflicts) {
-      // Only rename if it appears as a variable declaration
-      if (java.util.regex.Pattern.compile(typeKw + word + "\\b(?!\\s*\\()", java.util.regex.Pattern.MULTILINE).matcher(code).find()) {
-        // Rename all bare occurrences (not followed by '(')
-        code = code.replaceAll("\\b" + word + "\\b(?!\\s*\\()", "_" + word);
-      }
-    }
-
-    // ââ 12. mousePressed / keyPressed as bool variables â _mousePressed / _keyPressed â
-    // In Processing Java, 'mousePressed' is both a bool variable (read in draw)
-    // and an event callback method name (void mousePressed()).
-    // In C++ PApplet they can't share a name: the virtual method keeps the natural
-    // name, so occurrences used as a BOOL EXPRESSION (not followed by '(') must be
-    // rewritten to _mousePressed / _keyPressed.
-    // We use replaceKeywordsOutsideLiterals with a negative-lookahead-equivalent:
-    // replace \bmousePressed\b not followed by \s*( -- done via manual scan below.
-    code = rewriteBoolEventName(code, "mousePressed", "_mousePressed");
-    code = rewriteBoolEventName(code, "keyPressed",   "_keyPressed");
-
-    // ââ 13. frameRate as a variable read â _frameRate âââââââââââââââââââââââââââââ
-    // In Processing Java, 'frameRate' is both a setter function (frameRate(60))
-    // and a readable float variable (if (frameRate < 30)). In C++ PApplet, the
-    // method keeps the natural name. Variable reads (not followed by '(') must be
-    // rewritten to _frameRate, which _PSketch already exposes as a float proxy.
-    code = rewriteBoolEventName(code, "frameRate", "_frameRate");
-
-    return code;
-  }
-
-  // Replace all occurrences of `name` that are NOT immediately followed by '('
-  // (i.e. used as a variable, not as a function call or definition).
-  // Operates outside string/char literals and comments.
-  private String rewriteBoolEventName(String code, String name, String replacement) {
-    StringBuilder out = new StringBuilder();
-    int i = 0, n = code.length(), nlen = name.length();
-    while (i < n) {
-      char c = code.charAt(i);
-      // Skip line comments
-      if (c == '/' && i+1 < n && code.charAt(i+1) == '/') {
-        int end = code.indexOf('\n', i); if (end < 0) end = n;
-        out.append(code, i, end); i = end; continue;
-      }
-      // Skip block comments
-      if (c == '/' && i+1 < n && code.charAt(i+1) == '*') {
-        int end = code.indexOf("*/", i+2); end = end < 0 ? n : end+2;
-        out.append(code, i, end); i = end; continue;
-      }
-      // Skip string literals
-      if (c == '"') {
-        out.append(c); i++;
-        while (i < n) { char sc = code.charAt(i); out.append(sc); i++;
-          if (sc == '\\' && i < n) { out.append(code.charAt(i++)); continue; }
-          if (sc == '"') break; }
-        continue;
-      }
-      // Skip char literals
-      if (c == '\'') {
-        out.append(c); i++;
-        while (i < n) { char sc = code.charAt(i); out.append(sc); i++;
-          if (sc == '\\' && i < n) { out.append(code.charAt(i++)); continue; }
-          if (sc == '\'') break; }
-        continue;
-      }
-      // Check for name match
-      if (i + nlen <= n && code.substring(i, i+nlen).equals(name)) {
-        // Word boundary check: char before must not be letter/digit/_
-        boolean leftOk  = i == 0 || (!Character.isLetterOrDigit(code.charAt(i-1)) && code.charAt(i-1) != '_');
-        // Char after must not be letter/digit/_
-        boolean rightOk = i+nlen >= n || (!Character.isLetterOrDigit(code.charAt(i+nlen)) && code.charAt(i+nlen) != '_');
-        if (leftOk && rightOk) {
-          // Check what follows (skipping whitespace): if it's '(' this is a call/def, don't replace
-          int j = i + nlen;
-          while (j < n && (code.charAt(j) == ' ' || code.charAt(j) == '\t')) j++;
-          boolean isCall = j < n && code.charAt(j) == '(';
-          if (isCall) {
-            out.append(code, i, i+nlen); i += nlen;
-          } else {
-            out.append(replacement); i += nlen;
-          }
-          continue;
-        }
-      }
-      out.append(c); i++;
-    }
-    return out.toString();
-  }
-
-  private List<String> wordWrap(String line, int max) {
-    List<String> r = new ArrayList<>();
-    while (line.length() > max) {
-      int s = line.lastIndexOf(' ', max);
-      if (s < 0) s = max;
-      r.add(line.substring(0, s));
-      line = "    " + line.substring(s).stripLeading();
-    }
-    r.add(line);
-    return r;
-  }
-
-  /** Returns the best -std=c++XX flag supported by the given g++ binary. Cached per binary. */
-  private static final java.util.concurrent.ConcurrentHashMap<String,String> _stdCache
-      = new java.util.concurrent.ConcurrentHashMap<>();
-  static String bestCppStd(String gpp) {
-    return _stdCache.computeIfAbsent(gpp, g -> {
-      // First verify g++ is actually available
-      try {
-        Process test = toolchainEnv(new ProcessBuilder(g, "--version")).redirectErrorStream(true).start();
-        test.getInputStream().readAllBytes();
-        if (!test.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
-          test.destroyForcibly();
-          return "c++17";
-        }
-        if (test.exitValue() != 0) return "c++17";
-      } catch (Exception e) {
-        return "c++17"; // g++ not installed
-      }
-      // Probe for best supported standard
-      for (String std : new String[]{"c++2c", "c++23", "c++20", "c++17"}) {
-        try {
-          ProcessBuilder pb = toolchainEnv(new ProcessBuilder(g, "-std=" + std, "-x", "c++", "-fsyntax-only", "-"));
-          pb.redirectErrorStream(true);
-          Process proc = pb.start();
-          proc.getOutputStream().close();
-          boolean done = proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS);
-          if (!done) { proc.destroyForcibly(); continue; }
-          String out = new String(proc.getInputStream().readAllBytes());
-          if (!out.contains("unrecognized") && !out.contains("invalid argument") && !out.contains("note: use")) {
-            return std;
-          }
-        } catch (Exception ignored) {}
-      }
-      return "c++17";
-    });
-  }
-
-  private List<String> buildCommand(String gpp, File src, File bin, boolean win, boolean mac) {
-    return buildCommand(gpp, src, bin, win, mac, null);
-  }
-  private List<String> buildCommand(String gpp, File src, File bin, boolean win, boolean mac, String overrideStd) {
+  private List<String> buildCommand(String gpp, File src, File binary,
+                                     boolean isWindows, boolean isMac,
+                                     String stdOverride) throws Exception {
+    String std = stdOverride != null ? stdOverride : bestCppStd(gpp);
     List<String> cmd = new ArrayList<>();
     cmd.add(gpp);
-    String cppStd = (overrideStd != null) ? overrideStd : bestCppStd(gpp);
-    cmd.add("-std=" + cppStd);
+    cmd.add("-std=" + std);
     cmd.add("-O2");
-    // -march=native isn't reliably supported by Apple's clang (which is
-    // what g++/gcc resolve to on macOS via Xcode Command Line Tools) â
-    // skip it there rather than risk a build failing on an unsupported flag.
-    if (!mac) cmd.add("-march=native");
 
-    // ââ Homebrew include/lib paths (macOS only) âââââââââââââââââââââââââââââ
-    // Homebrew installs to /opt/homebrew on Apple Silicon and /usr/local on
-    // Intel Macs â neither is guaranteed to be on g++'s default search path,
-    // so add both explicitly. Harmless if a path doesn't exist.
-    String homebrewPrefix = null;
-    // Bundled headers (GLFW, GLEW) ship with the mode on all platforms.
-    File bundledInclude = new File(runtimeDir.getParentFile(), "libs/include");
-    if (mac) {
-      if (new File("/opt/homebrew/include").exists()) homebrewPrefix = "/opt/homebrew";
-      else if (new File("/usr/local/include").exists()) homebrewPrefix = "/usr/local";
-      if (homebrewPrefix != null) {
-        cmd.add("-I" + homebrewPrefix + "/include");
-      }
+    // Include paths
+    cmd.add("-I"); cmd.add(runtimeDir.getAbsolutePath());
+    File bundledInc = new File(runtimeDir.getParentFile(), "libs/include");
+    if (bundledInc.exists()) { cmd.add("-I"); cmd.add(bundledInc.getAbsolutePath()); }
+
+    // libprocessing (wgpu) backend
+    boolean lp = useLibProcessing();
+    if (lp) {
+      cmd.add("-DCPPMODE_BACKEND_LIBPROCESSING"); cmd.add("-DPROCESSING_HAS_STB_IMAGE"); cmd.add("-DPROCESSING_HAS_STB_TRUETYPE");
+      for (File inc : libProcessingIncludes()) { cmd.add("-I"); cmd.add(inc.getAbsolutePath()); }
     }
-    // Always add bundled headers -- takes precedence over system headers
-    // on Windows, supplements Homebrew on macOS, supplements pkg on Linux.
-    if (win) {
-      if (bundledInclude.exists()) cmd.add("-I" + bundledInclude.getAbsolutePath());
+
+    // Platform link flags
+    if (isWindows) {
+      addWindowsLinkFlags(cmd);
+    } else if (isMac) {
+      addMacLinkFlags(cmd);
     } else {
-      boolean hasSystemGlfw = new File("/usr/include/GLFW/glfw3.h").exists()
-          || new File("/usr/local/include/GLFW/glfw3.h").exists()
-          || new File("/opt/homebrew/include/GLFW/glfw3.h").exists();
-      if (!hasSystemGlfw && bundledInclude.exists())
-        cmd.add("-I" + bundledInclude.getAbsolutePath());
+      addLinuxLinkFlags(cmd);
     }
 
-    // ââ Cached precompiled objects ââââââââââââââââââââââââââââââââââââââââââ
-    // Processing.cpp takes ~9s to compile. Cache the .o and reuse it.
-    // Declared outside try so they are visible after the catch block.
-    File processingPch = null;
-    boolean needsPch = true;
-    // Skip PCH on low-memory machines (< 4GB free) to avoid OOM
-    long freeMemBytes = Runtime.getRuntime().maxMemory() - 
-        (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory());
-    boolean lowMemory = freeMemBytes < 768L * 1024 * 1024; // < 768MB JVM headroom
-    // Also check system RAM
-    try {
-      java.lang.management.OperatingSystemMXBean osmx =
-          java.lang.management.ManagementFactory.getOperatingSystemMXBean();
-      java.lang.reflect.Method getFreeMemory =
-          osmx.getClass().getMethod("getFreeMemorySize");
-      getFreeMemory.setAccessible(true);
-      long freeRam = (long) getFreeMemory.invoke(osmx);
-      if (freeRam < 3L * 1024 * 1024 * 1024) lowMemory = true; // < 3GB free RAM
-    } catch (Exception ignored) {}
-    if (lowMemory) needsPch = false;
-    try {
-    String osName = System.getProperty("os.name","").toLowerCase();
-    String cacheSubDir = osName.contains("win")  ? "cache/windows-x64"
-                        : osName.contains("mac")  ? "cache/macos-" + (System.getProperty("os.arch","").contains("aarch64") ? "arm64" : "x64")
-                        : "cache/linux-x64";
-    File cacheDir = new File(runtimeDir.getParentFile(), cacheSubDir);
-    cacheDir.mkdirs();
-    File processingH = new File(runtimeDir, "Processing.h");
-    processingPch = new File(cacheDir, "Processing.h.gch");
-    needsPch = !processingPch.exists();
-    File processingO  = new File(cacheDir, "Processing.o");
-    File defaultsO    = new File(cacheDir, "Processing_defaults.o");
-    File processingCpp = new File(runtimeDir, "Processing.cpp");
-    File defaultsCpp   = new File(runtimeDir, "Processing_defaults.cpp");
-    boolean needsProcessing = !processingO.exists();
-    boolean needsDefaults   = !defaultsO.exists();
-
-    if (needsPch) {
-      List<String> pchCmd = new ArrayList<>();
-      pchCmd.add(gpp); pchCmd.add("-std=" + cppStd); pchCmd.add("-O2");
-      if (!mac) pchCmd.add("-march=x86-64");
-      if (homebrewPrefix != null) pchCmd.add("-I" + homebrewPrefix + "/include");
-      if (win && bundledInclude.exists()) pchCmd.add("-I" + bundledInclude.getAbsolutePath());
-      pchCmd.add("-I" + runtimeDir.getAbsolutePath());
-      pchCmd.add("-DPROCESSING_HAS_STB_IMAGE");
-      pchCmd.add("-DPROCESSING_HAS_STB_TRUETYPE");
-      pchCmd.add("-x"); pchCmd.add("c++-header");
-      pchCmd.add(processingH.getAbsolutePath());
-      pchCmd.add("-o"); pchCmd.add(processingPch.getAbsolutePath());
-      ProcessBuilder pchPb = toolchainEnv(new ProcessBuilder(pchCmd));
-      pchPb.redirectErrorStream(true);
-      pchPb.start().waitFor();
-    }
-    if (needsProcessing) {
-      List<String> preCmd = new ArrayList<>();
-      preCmd.add(gpp); preCmd.add("-std=" + cppStd); preCmd.add("-O2");
-      if (!mac) preCmd.add("-march=native");
-      if (homebrewPrefix != null) preCmd.add("-I" + homebrewPrefix + "/include");
-      if (win && bundledInclude.exists()) preCmd.add("-I" + bundledInclude.getAbsolutePath());
-      preCmd.add("-I" + runtimeDir.getAbsolutePath());
-      preCmd.add("-DPROCESSING_HAS_STB_IMAGE");
-      preCmd.add("-DPROCESSING_HAS_STB_TRUETYPE");
-      preCmd.add("-c"); preCmd.add(processingCpp.getAbsolutePath());
-      preCmd.add("-o"); preCmd.add(processingO.getAbsolutePath());
-      ProcessBuilder prePb = toolchainEnv(new ProcessBuilder(preCmd));
-      prePb.redirectErrorStream(true);
-      Process preP = prePb.start();
-      StringBuilder preLog = new StringBuilder();
-      try (java.io.BufferedReader br = new java.io.BufferedReader(
-          new java.io.InputStreamReader(preP.getInputStream()))) {
-        String line; while ((line=br.readLine())!=null) preLog.append(line).append('\n');
-      }
-      if (preP.waitFor() != 0 || !processingO.exists()) {
-        // Cache failed - fall back to inline compilation
-        cmd.add(processingCpp.getAbsolutePath());
-      } else {
-      }
-    }
-    if (needsDefaults) {
-      List<String> preCmd2 = new ArrayList<>();
-      preCmd2.add(gpp); preCmd2.add("-std=" + cppStd); preCmd2.add("-O2");
-      if (!mac) preCmd2.add("-march=native");
-      if (homebrewPrefix != null) preCmd2.add("-I" + homebrewPrefix + "/include");
-      if (win && bundledInclude.exists()) preCmd2.add("-I" + bundledInclude.getAbsolutePath());
-      preCmd2.add("-I" + runtimeDir.getAbsolutePath());
-      preCmd2.add("-DPROCESSING_HAS_STB_IMAGE");
-      preCmd2.add("-DPROCESSING_HAS_STB_TRUETYPE");
-      preCmd2.add("-c"); preCmd2.add(defaultsCpp.getAbsolutePath());
-      preCmd2.add("-o"); preCmd2.add(defaultsO.getAbsolutePath());
-      ProcessBuilder prePb2 = toolchainEnv(new ProcessBuilder(preCmd2));
-      prePb2.redirectErrorStream(true);
-      if (prePb2.start().waitFor() != 0 || !defaultsO.exists()) {
-        cmd.add(defaultsCpp.getAbsolutePath());
-      }
-    }
-
-    // Add cached .o files if they exist, otherwise inline source
-    if (processingO.exists() && !needsProcessing)
-      cmd.add(processingO.getAbsolutePath());
-    else if (!cmd.contains(processingCpp.getAbsolutePath()))
-      cmd.add(processingCpp.getAbsolutePath());
-
-    if (defaultsO.exists() && !needsDefaults)
-      cmd.add(defaultsO.getAbsolutePath());
-    else if (!cmd.contains(defaultsCpp.getAbsolutePath()))
-      cmd.add(defaultsCpp.getAbsolutePath());
-    } catch (Exception _cacheEx) {
-      // Cache failed - fall back to compiling inline
-      System.err.println("[cache] error: " + _cacheEx.getMessage());
-      cmd.add(new File(runtimeDir, "Processing.cpp").getAbsolutePath());
-      cmd.add(new File(runtimeDir, "Processing_defaults.cpp").getAbsolutePath());
-    }
+    // Cached Processing.o
+    String os = System.getProperty("os.name", "").toLowerCase();
+    String cacheSubDir = os.contains("win")  ? "cache/windows-x64"
+                       : os.contains("mac")  ? "cache/macos-" +
+                         (System.getProperty("os.arch","").contains("aarch64")
+                             ? "arm64" : "x64")
+                       : "cache/linux-x64";
+    if (lp) cacheSubDir += "-libprocessing";
+    File cacheDir    = new File(runtimeDir.getParentFile(), cacheSubDir);
+    File processingO = new File(cacheDir, "Processing.o");
+    File defaultsO   = new File(cacheDir, "Processing_defaults.o");
+    if (lp && !processingO.exists()) buildLibProcessingCache(gpp, std, cacheDir);
 
     cmd.add(src.getAbsolutePath());
-    // main() is now emitted inside Sketch_run.cpp by writeSketch() -- don't link main.cpp
-    // Use precompiled header if available -- cuts sketch compile time significantly.
-    if (processingPch.exists() && !needsPch) {
-      // GCC automatically uses Processing.h.gch when the directory
-      // containing it appears before the src dir in the include path.
-      cmd.add("-I"); cmd.add(processingPch.getParentFile().getAbsolutePath());
-    }
-    cmd.add("-I" + runtimeDir.getAbsolutePath());
-    cmd.add("-o"); cmd.add(bin.getAbsolutePath());
-    // Enable stb_image if present in mode's src/ folder
-    File stbImage = new File(runtimeDir, "stb_image.h");
-    if (stbImage.exists()) cmd.add("-DPROCESSING_HAS_STB_IMAGE");
-    File stbTTF = new File(runtimeDir, "stb_truetype.h");
-    if (stbTTF.exists()) cmd.add("-DPROCESSING_HAS_STB_TRUETYPE");
+    if (processingO.exists()) cmd.add(processingO.getAbsolutePath());
+    if (defaultsO.exists())   cmd.add(defaultsO.getAbsolutePath());
 
-    if (win) {
-      // Link against import libs: WinLibs first, then bundled, then MSYS2
-      File portableBin = InstallWizard.getPortableGccDir();
-      if (portableBin.exists()) cmd.add("-L" + portableBin.getAbsolutePath());
-      // Add sketch folder to -L so DLLs copied there can be linked directly
-      cmd.add("-L" + sketch.getFolder().getAbsolutePath());
-      File winLibs = new File(runtimeDir.getParentFile(), "libs/windows-x64");
-      if (winLibs.exists()) cmd.add("-L" + winLibs.getAbsolutePath());
-      Collections.addAll(cmd,
-        "-lglfw3", "-lglew32", "-lopengl32", "-lglu32",
-        "-lcomdlg32", "-lshell32", "-lole32", "-luuid",
-        "-pthread", "-D_USE_MATH_DEFINES");
-    } else if (mac) {
-      // macOS: prefer bundled dylibs shipped with the mode (libs/macos)
-      // universal dylibs work on both arm64 and x64.
-      String arch = System.getProperty("os.arch","").contains("aarch64") ? "arm64" : "x64";
-      File macLibsDir = new File(runtimeDir.getParentFile(), "libs/macos");
-      boolean hasBundled = new File(macLibsDir, "libglfw.3.dylib").exists()
-                        && new File(macLibsDir, "libGLEW.dylib").exists();
-      if (hasBundled) {
-        // Strip macOS quarantine attribute so Gatekeeper does not block the dylibs.
-        // xattr -dr removes the quarantine flag; codesign ad-hoc signs as fallback
-        // in case xattr fails (e.g. SIP-restricted path).
-        try {
-          toolchainEnv(new ProcessBuilder("xattr", "-dr", "com.apple.quarantine", macLibsDir.getAbsolutePath()))
-              .start().waitFor();
-        } catch (Exception ignored) {}
-        try {
-          for (java.io.File dylib : macLibsDir.listFiles((d,n) -> n.endsWith(".dylib"))) {
-            toolchainEnv(new ProcessBuilder("codesign", "--force", "--sign", "-", dylib.getAbsolutePath()))
-                .start().waitFor();
-          }
-        } catch (Exception ignored) {}
-        cmd.add("-L" + macLibsDir.getAbsolutePath());
-        cmd.add("-Wl,-rpath," + macLibsDir.getAbsolutePath());
-        cmd.add("-Wl,-rpath,@executable_path");
-      } else if (homebrewPrefix != null) {
-        cmd.add("-L" + homebrewPrefix + "/lib");
-        // Also add keg-only glfw/glew paths (newer Homebrew may install there)
-        cmd.add("-L" + homebrewPrefix + "/opt/glfw/lib");
-        cmd.add("-L" + homebrewPrefix + "/opt/glew/lib");
-      }
-      Collections.addAll(cmd, "-lglfw", "-lGLEW", "-lm", "-pthread", "-lobjc");
-      Collections.addAll(cmd, "-framework", "OpenGL");
-      Collections.addAll(cmd, "-framework", "Cocoa");
-      Collections.addAll(cmd, "-framework", "IOKit");
-      Collections.addAll(cmd, "-framework", "CoreVideo");
-    } else {
-      Collections.addAll(cmd, "-lglfw", "-lGLEW", "-lGL", "-lGLU", "-lm", "-pthread");
+    cmd.add("-o"); cmd.add(binary.getAbsolutePath());
+
+    // FreeType: only when the cached Processing.o was built with it
+    File ftMarker = new File(cacheDir, "freetype.flags");
+    if (ftMarker.exists()) {
+      for (String f : Files.readString(ftMarker.toPath()).trim().split("\\s+"))
+        if (!f.isEmpty()) cmd.add(f);
     }
+
+    if (lp) {
+      // cppmode-ship: per-platform linking. Linux and macOS find the library through rpath
+      // (its folder, plus next to the binary); Windows has no rpath, so the DLL is copied next to the .exe.
+      File libDir = libProcessingLibDir();
+      String lpOs = System.getProperty("os.name").toLowerCase();
+      cmd.add("-L" + libDir.getAbsolutePath());
+      if (lpOs.contains("win")) {
+        File dll = new File(libDir, lpLibName());
+        java.nio.file.Files.copy(dll.toPath(), new File(binary.getAbsoluteFile().getParentFile(), dll.getName()).toPath(),
+                                 java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+      } else {
+        cmd.add("-Wl,-rpath," + libDir.getAbsolutePath());
+        cmd.add(lpOs.contains("mac") ? "-Wl,-rpath,@executable_path" : "-Wl,-rpath,$ORIGIN");
+      }
+      cmd.add("-lprocessing");
+    }
+
+    // Debug flag (presence of DEBUG file in sketch folder)
+    if (sketch != null && new File(sketch.getFolder(), "DEBUG").exists()) {
+      cmd.add("-DPROCESSING_DEBUG");
+    }
+
     return cmd;
   }
 
-  /**
-   * Run the sketch text through the real C/C++ preprocessor (g++ -E) so that
-   * all #define macros -- including multi-line X-macros with backslash
-   * continuations, token pasting (##), stringification (#), and conditional
-   * compilation (#ifdef) -- are fully expanded BEFORE any of CppBuild's own
-   * text-scanning passes (hoistClasses, removeHoistedClasses, enum/constexpr
-   * extraction, lifecycle-method rewriting) run.
-   *
-   * This is necessary because those passes are simple line/brace scanners
-   * that assume "what you see textually is what the C++ grammar sees." That
-   * assumption only holds true AFTER macro expansion -- a multi-line #define
-   * or an X-macro expanding into enum/switch bodies will otherwise corrupt
-   * the brace-depth tracking and produce garbage output.
-   *
-   * We preserve #line markers (no -P flag) so that g++'s own line-tracking
-   * stays roughly aligned; CppBuild re-stamps "#line 1 \"sketch.pde\"" right
-   * before emitting user code anyway, so exact line fidelity through the
-   * macro-expansion step is a secondary concern -- correctness of the
-   * expanded code is the primary goal.
-   */
-  /** Strip "new TypeName(" only when TypeName matches the declared variable type. */
-  private static String stripMatchingNew(String code) {
-    // Match: BaseType<...> varName = new SameBase<...>(
-    // Capture group 1: base type name; group 2: full lhs; group 3: new type base
-    java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-        "(\\w+)(?:<[^;={]*>)?\\s+\\w+\\s*=\\s*new\\s+(\\w+)(?:<[^;={]*>)?\\s*\\(");
-    java.util.regex.Matcher m = p.matcher(code);
-    StringBuffer sb = new StringBuffer();
-    while (m.find()) {
-        String declBase = m.group(1);
-        String newBase = m.group(2);
-        if (declBase.equals(newBase)) {
-            // Same base type: strip "new "
-            String replaced = m.group(0).replaceFirst("new\\s+", "");
-            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replaced));
-        } else {
-            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group(0)));
-        }
-    }
-    m.appendTail(sb);
-    return sb.toString();
-  }
+  // ── libprocessing backend ────────────────────────────────────────────────
 
-  private String preprocessMacros(String code) {
-    // Fast path: if there's no #define/#ifdef/#undef/#include anywhere,
-    // skip invoking an external process entirely.
-    if (!code.contains("#define") && !code.contains("#ifdef")
-        && !code.contains("#ifndef") && !code.contains("#undef")
-        && !code.contains("#if ")) {
-      return code;
-    }
-    try {
-      // Strip #include lines before preprocessing -- we only want macro
-      // expansion (#define/#ifdef), not system header inclusion which
-      // causes g++ -E to interleave sketch code with STL internals.
-      StringBuilder noIncludes = new StringBuilder();
-      for (String line : code.split("\n", -1)) {
-        String t = line.strip();
-        if (t.startsWith("#include")) {
-          noIncludes.append("\n"); // preserve line numbers
-        } else {
-          noIncludes.append(line).append("\n");
-        }
+  /** On when CPPMODE_RENDERER=libprocessing, the editor dropdown says so, or the sketch has a LIBPROCESSING file. */
+  private boolean useLibProcessing() {
+    boolean want;
+    if ("libprocessing".equalsIgnoreCase(System.getenv("CPPMODE_RENDERER"))) want = true;
+    else if (selectedRenderer != null) want = "libprocessing".equalsIgnoreCase(selectedRenderer);
+    else want = sketch != null && new File(sketch.getFolder(), "LIBPROCESSING").exists();
+    // cppmode-ship: without the library, build with OpenGL instead of failing at link time
+    if (want && libProcessingLibDir() == null) {
+      if (!lpMissingReported) {
+        lpMissingReported = true;
+        System.err.println("[CppMode] The libprocessing renderer is selected, but its library (" + lpLibName()
+            + ") wasn't found in libs/" + lpPlatform() + "/libprocessing or ~/lp-fork. Using OpenGL.");
       }
-      File scratch = (buildDir != null)
-          ? new File(buildDir, "_macro_preprocess_input.cpp")
-          : Files.createTempFile("cppmode_preprocess_", ".cpp").toFile();
-      Files.writeString(scratch.toPath(), noIncludes.toString());
-
-      boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
-      String gpp = findGpp(isWindows);
-
-      // -E: stop after preprocessing.  -x c++: force C++ mode regardless of
-      // the .cpp extension's default.  -P would strip line markers; we keep
-      // them (omit -P) since downstream code already re-stamps its own
-      // #line directive, and keeping g++'s markers costs nothing here.
-      ProcessBuilder pb = toolchainEnv(new ProcessBuilder(gpp, "-E", "-std=c++23", "-x", "c++", scratch.getAbsolutePath()));
-      pb.directory(buildDir != null ? buildDir : scratch.getParentFile());
-      pb.redirectErrorStream(false);
-      Process proc = pb.start();
-
-      String expanded = new String(proc.getInputStream().readAllBytes());
-      String errOutput = new String(proc.getErrorStream().readAllBytes());
-      int exitCode = proc.waitFor();
-
-      if (exitCode != 0 || expanded.isBlank()) {
-        // Preprocessing failed (e.g. malformed macro) -- fall back to the
-        // original, unexpanded code rather than silently producing nothing.
-        // The downstream compile step will surface a clearer error in that
-        // case, and we don't want a preprocessing hiccup to mask the
-        // sketch entirely.
-        System.err.println("[CppMode] macro preprocessing failed, using original code: " + errOutput);
-        return code;
-      }
-
-      // g++ -E emits "# <line> \"<file>\" <flags>" GNU-style line markers.
-      // We keep ONLY lines that originate from the scratch file itself,
-      // filtering out system header expansions (#include <type_traits> etc.)
-      // which would overwhelm the CppMode parser with STL internals.
-      String scratchPath = scratch.getAbsolutePath();
-      StringBuilder cleaned = new StringBuilder();
-      boolean inScratchFile = true; // start in sketch file
-      for (String line : expanded.split("\n", -1)) {
-        String t = line.strip();
-        // GNU line marker: "# N \"filename\" flags"
-        if (t.startsWith("# ") && t.length() > 2 && Character.isDigit(t.charAt(2))) {
-          // System headers have /usr/, /lib/, or c++/ in path
-          boolean isSystemHeader = t.contains("/usr/") || t.contains("/lib/") || t.contains("c++/");
-          // Scratch file or built-ins
-          boolean isScratch = t.contains(scratchPath) || t.contains("<command-line>") || t.contains("<built-in>") || t.contains("<stdin>");
-          if (isSystemHeader) inScratchFile = false;
-          else if (isScratch) inScratchFile = true;
-          // flag=2 means "returned to file after include" -- always re-enable for scratch
-          else inScratchFile = true; // unknown file -- keep (could be user header)
-          continue; // never emit line markers themselves
-        }
-        if (t.startsWith("#line")) continue;
-        if (t.startsWith("#pragma")) continue; // strip pragmas from system headers
-        if (!inScratchFile) continue; // skip system header content
-        cleaned.append(line).append("\n");
-      }
-      return cleaned.toString();
-    } catch (Exception e) {
-      System.err.println("[CppMode] macro preprocessing exception, using original code: " + e);
-      return code;
-    }
-  }
-
-  /** Returns the major version of the given g++ binary, or 0 if unknown. */
-  static int gppMajorVersion(String gpp) {
-    try {
-      Process proc = toolchainEnv(new ProcessBuilder(gpp, "--version")).redirectErrorStream(true).start();
-      String out = new String(proc.getInputStream().readAllBytes());
-      proc.waitFor();
-      // Output: "g++ (GCC) 13.2.0 ..." or "Apple clang version 15.0.0 ..."
-      java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\.\\d+\\.\\d+").matcher(out);
-      if (m.find()) return Integer.parseInt(m.group(1));
-    } catch (Exception ignored) {}
-    return 0;
-  }
-
-  private String findGpp(boolean win) {
-    if (win) {
-      for (String p : new String[]{
-            // Portable gcc (downloaded by InstallWizard, no MSYS2 needed)
-            System.getenv("APPDATA") + "\\CppMode\\gcc\\mingw64\\bin\\g++.exe",
-            "C:\\msys64\\mingw64\\bin\\g++.exe",
-            "C:\\msys2\\mingw64\\bin\\g++.exe",
-            System.getProperty("user.home") + "\\msys64\\mingw64\\bin\\g++.exe"})
-        if (new File(p).exists()) return p;
-    }
-    return "g++";
-  }
-
-  // ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-  // EXPORT APPLICATION SYSTEM
-  // ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-
-  public enum ExportTarget {
-    LINUX_X64   ("linux-x64",    "g++",                        "Linux 64-bit (x86_64)",         false),
-    LINUX_ARM64 ("linux-arm64",  "aarch64-linux-gnu-g++",      "Linux ARM64 (RPi 4/5, 64-bit)", false),
-    LINUX_ARM32 ("linux-arm32",  "arm-linux-gnueabihf-g++",    "Linux ARM32 (RPi 2/3, 32-bit)", false),
-    WINDOWS_X64 ("windows-x64", "x86_64-w64-mingw32-g++",     "Windows 64-bit",                true),
-    MACOS_X64   ("macos-x64",   "x86_64-apple-darwin23-c++",  "macOS Intel 64-bit",            false),
-    MACOS_ARM64 ("macos-arm64", "aarch64-apple-darwin23-c++", "macOS Apple Silicon",           false);
-
-    public final String dirName, compiler, label;
-    public final boolean isWindows;
-    ExportTarget(String d, String c, String l, boolean w) {
-      dirName=d; compiler=c; label=l; isWindows=w;
-    }
-  }
-
-  public void showExportDialog(Sketch sketch, RunnerListener listener) {
-    java.util.Map<ExportTarget,Boolean> avail = new java.util.LinkedHashMap<>();
-    for (ExportTarget t : ExportTarget.values()) avail.put(t, compilerExists(t));
-
-    String os = System.getProperty("os.name","").toLowerCase();
-    boolean isWin = os.contains("win");
-    java.awt.Color bg    = new java.awt.Color(28,30,38);
-    java.awt.Color bgRow = new java.awt.Color(35,37,48);
-    java.awt.Color green = new java.awt.Color(100,220,120);
-    java.awt.Color red   = new java.awt.Color(240,80,80);
-    java.awt.Color blue  = new java.awt.Color(210,228,255);
-
-    javax.swing.JDialog dlg = new javax.swing.JDialog((java.awt.Frame)null,"Export Application",true);
-    dlg.setLayout(new java.awt.BorderLayout(8,8));
-    dlg.getContentPane().setBackground(bg);
-
-    // ââ Title ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JLabel title = new javax.swing.JLabel("  Export Application");
-    title.setForeground(blue);
-    title.setFont(title.getFont().deriveFont(java.awt.Font.BOLD,15f));
-    title.setBorder(javax.swing.BorderFactory.createEmptyBorder(14,8,4,8));
-    dlg.add(title, java.awt.BorderLayout.NORTH);
-
-    javax.swing.JPanel center = new javax.swing.JPanel(new java.awt.BorderLayout(4,6));
-    center.setBackground(bg);
-    center.setBorder(javax.swing.BorderFactory.createEmptyBorder(0,14,4,14));
-
-    // ââ Icon picker ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JPanel iconPanel = new javax.swing.JPanel(new java.awt.BorderLayout(6,4));
-    iconPanel.setBackground(bg);
-    iconPanel.setBorder(javax.swing.BorderFactory.createEmptyBorder(4,0,8,0));
-
-    // Top row: label + hint
-    javax.swing.JPanel iconTop = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT,4,0));
-    iconTop.setBackground(bg);
-    javax.swing.JLabel iconLbl = new javax.swing.JLabel("App Icon (PNG)  ");
-    iconLbl.setForeground(blue);
-    iconLbl.setFont(iconLbl.getFont().deriveFont(java.awt.Font.BOLD, 12f));
-    javax.swing.JLabel iconHint = new javax.swing.JLabel("optional Â· 256Ã256 recommended Â· leave blank to skip");
-    iconHint.setForeground(new java.awt.Color(110,115,150));
-    iconHint.setFont(iconHint.getFont().deriveFont(10f));
-    iconTop.add(iconLbl); iconTop.add(iconHint);
-    iconPanel.add(iconTop, java.awt.BorderLayout.NORTH);
-
-    // Bottom row: preview + path field + buttons
-    javax.swing.JPanel iconBottom = new javax.swing.JPanel(new java.awt.BorderLayout(6,0));
-    iconBottom.setBackground(bg);
-
-    // Icon preview label (shows thumbnail)
-    javax.swing.JLabel iconPreview = new javax.swing.JLabel();
-    iconPreview.setPreferredSize(new java.awt.Dimension(48,48));
-    iconPreview.setOpaque(true);
-    iconPreview.setBackground(new java.awt.Color(40,42,55));
-    iconPreview.setBorder(javax.swing.BorderFactory.createLineBorder(new java.awt.Color(60,65,90)));
-    iconPreview.setHorizontalAlignment(javax.swing.JLabel.CENTER);
-    iconBottom.add(iconPreview, java.awt.BorderLayout.WEST);
-
-    // Path field - read only, updated by file chooser
-    javax.swing.JTextField iconField = new javax.swing.JTextField();
-    iconField.setBackground(new java.awt.Color(40,42,55));
-    iconField.setForeground(blue); iconField.setCaretColor(blue);
-    iconField.setBorder(javax.swing.BorderFactory.createCompoundBorder(
-      javax.swing.BorderFactory.createLineBorder(new java.awt.Color(60,65,90)),
-      javax.swing.BorderFactory.createEmptyBorder(2,6,2,6)));
-    iconField.setFont(iconField.getFont().deriveFont(11f));
-
-    // Helper to update preview
-    Runnable[] updatePreview = {null};
-    updatePreview[0] = () -> {
-      String p = iconField.getText().trim();
-      if (!p.isEmpty() && new File(p).exists()) {
-        try {
-          java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new File(p));
-          if (img != null) {
-            java.awt.Image scaled = img.getScaledInstance(44, 44, java.awt.Image.SCALE_SMOOTH);
-            iconPreview.setIcon(new javax.swing.ImageIcon(scaled));
-            iconPreview.setText("");
-          }
-        } catch (Exception ignored) { iconPreview.setIcon(null); iconPreview.setText("?"); }
-      } else {
-        iconPreview.setIcon(null);
-        iconPreview.setText(p.isEmpty() ? "none" : "!");
-        iconPreview.setForeground(new java.awt.Color(120,125,155));
-      }
-    };
-
-    // Pre-fill if sketch has icon.png
-    for (String p : new String[]{"icon.png","data/icon.png"}) {
-      File ic = new File(sketch.getFolder(), p);
-      if (ic.exists()) { iconField.setText(ic.getAbsolutePath()); break; }
-    }
-    updatePreview[0].run();
-
-    // Buttons panel
-    javax.swing.JPanel iconBtns = new javax.swing.JPanel(new java.awt.GridLayout(2,1,2,2));
-    iconBtns.setBackground(bg);
-
-    javax.swing.JButton iconBrowse = new javax.swing.JButton("Browse...");
-    iconBrowse.setFont(iconBrowse.getFont().deriveFont(11f));
-    iconBrowse.addActionListener(e -> {
-      javax.swing.JFileChooser fc = new javax.swing.JFileChooser(
-        iconField.getText().isEmpty() ? sketch.getFolder().getAbsolutePath()
-          : new File(iconField.getText()).getParent());
-      fc.setDialogTitle("Select App Icon (PNG)");
-      fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("PNG Images (*.png)","png"));
-      fc.setFileSelectionMode(javax.swing.JFileChooser.FILES_ONLY);
-      fc.setPreferredSize(new java.awt.Dimension(700, 500));
-      if (fc.showOpenDialog(dlg) == javax.swing.JFileChooser.APPROVE_OPTION) {
-        iconField.setText(fc.getSelectedFile().getAbsolutePath());
-        updatePreview[0].run();
-      }
-    });
-
-    javax.swing.JButton iconClear = new javax.swing.JButton("Clear");
-    iconClear.setFont(iconClear.getFont().deriveFont(11f));
-    iconClear.setForeground(new java.awt.Color(180,80,80));
-    iconClear.addActionListener(e -> {
-      iconField.setText("");
-      updatePreview[0].run();
-    });
-
-    iconBtns.add(iconBrowse); iconBtns.add(iconClear);
-    iconBottom.add(iconField, java.awt.BorderLayout.CENTER);
-    iconBottom.add(iconBtns, java.awt.BorderLayout.EAST);
-    iconPanel.add(iconBottom, java.awt.BorderLayout.CENTER);
-    center.add(iconPanel, java.awt.BorderLayout.NORTH);
-
-    // ââ Target checkboxes ââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JPanel targets = new javax.swing.JPanel();
-    targets.setLayout(new javax.swing.BoxLayout(targets, javax.swing.BoxLayout.Y_AXIS));
-    targets.setBackground(bg);
-    java.util.Map<ExportTarget,javax.swing.JCheckBox> boxes = new java.util.LinkedHashMap<>();
-
-    for (ExportTarget t : ExportTarget.values()) {
-      // Show all targets everywhere - unavailable ones shown grayed out
-      boolean ok = avail.getOrDefault(t, false);
-      boolean isMac = t==ExportTarget.MACOS_X64 || t==ExportTarget.MACOS_ARM64;
-
-      javax.swing.JPanel row = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT,5,2));
-      row.setBackground(bgRow);
-      row.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 34));
-
-      javax.swing.JCheckBox cb = new javax.swing.JCheckBox(t.label);
-      cb.setBackground(bgRow); cb.setEnabled(ok);
-      cb.setForeground(ok ? blue : red);
-      if (!ok) cb.setFont(cb.getFont().deriveFont(java.awt.Font.ITALIC));
-      cb.setSelected(ok && (
-        (isWin && t==ExportTarget.WINDOWS_X64) ||
-        (!isWin && (t==ExportTarget.LINUX_X64 || t==ExportTarget.WINDOWS_X64))));
-      if (isMac && ok) cb.addActionListener(e -> {
-        if (cb.isSelected()) javax.swing.JOptionPane.showMessageDialog(dlg,
-          "<html><b>macOS export</b> requires <b>osxcross</b> on your PATH.<br>"+
-          "This may take several minutes to compile.<br>"+
-          "If osxcross is not installed, export will fail.</html>",
-          "macOS Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
-      });
-      row.add(cb);
-      boxes.put(t, cb);
-
-      javax.swing.JLabel statusLbl = new javax.swing.JLabel(ok ? "â" : "â not found");
-      statusLbl.setForeground(ok ? green : red);
-      statusLbl.setFont(statusLbl.getFont().deriveFont(10f));
-      row.add(statusLbl);
-
-      if (!ok) {
-        javax.swing.JButton installBtn = new javax.swing.JButton("Install");
-        installBtn.setBackground(new java.awt.Color(50,80,150));
-        installBtn.setForeground(java.awt.Color.WHITE);
-        installBtn.setFont(installBtn.getFont().deriveFont(10f));
-        installBtn.setMargin(new java.awt.Insets(1,6,1,6));
-        final ExportTarget ft=t; final javax.swing.JCheckBox fcb=cb;
-        final javax.swing.JLabel fsl=statusLbl;
-        installBtn.addActionListener(e -> {
-          installBtn.setText("Installing...");
-          installBtn.setEnabled(false);
-          new Thread(() -> {
-            boolean ok2 = installCompilerForTarget(ft, listener);
-            javax.swing.SwingUtilities.invokeLater(() -> {
-              if (ok2 && compilerExists(ft)) {
-                fcb.setEnabled(true); fcb.setForeground(blue);
-                fcb.setFont(fcb.getFont().deriveFont(java.awt.Font.PLAIN));
-                fsl.setText("â ready"); fsl.setForeground(green);
-                installBtn.setText("â Done");
-                installBtn.setBackground(new java.awt.Color(40,110,55));
-              } else {
-                installBtn.setText("Retry"); installBtn.setEnabled(true);
-                fsl.setText("â failed");
-              }
-            });
-          }).start();
-        });
-        row.add(installBtn);
-        String hint = getInstallHint(t);
-        if (!hint.isEmpty()) {
-          javax.swing.JLabel hl = new javax.swing.JLabel("  " + hint);
-          hl.setForeground(new java.awt.Color(110,115,145));
-          hl.setFont(hl.getFont().deriveFont(9f));
-          row.add(hl);
-        }
-      }
-      targets.add(row);
-      targets.add(javax.swing.Box.createVerticalStrut(2));
-    }
-
-    javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(targets);
-    scroll.setBorder(null); scroll.getViewport().setBackground(bg);
-    center.add(scroll, java.awt.BorderLayout.CENTER);
-    dlg.add(center, java.awt.BorderLayout.CENTER);
-
-    // ââ Buttons ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JPanel btnRow = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT,10,10));
-    btnRow.setBackground(bg);
-    javax.swing.JButton cancel = new javax.swing.JButton("Cancel");
-    javax.swing.JButton export = new javax.swing.JButton("Export");
-    export.setBackground(new java.awt.Color(55,95,175)); export.setForeground(java.awt.Color.WHITE);
-    boolean[] go = {false};
-    cancel.addActionListener(e -> dlg.dispose());
-    export.addActionListener(e -> { go[0]=true; dlg.dispose(); });
-    btnRow.add(cancel); btnRow.add(export);
-    dlg.add(btnRow, java.awt.BorderLayout.SOUTH);
-
-    dlg.pack();
-    dlg.setMinimumSize(new java.awt.Dimension(560, 380));
-    dlg.setLocationRelativeTo(null);
-    dlg.setVisible(true);
-    if (!go[0]) return;
-
-    java.util.List<ExportTarget> selected = new java.util.ArrayList<>();
-    for (java.util.Map.Entry<ExportTarget,javax.swing.JCheckBox> e : boxes.entrySet())
-      if (e.getValue().isSelected()) selected.add(e.getKey());
-    if (selected.isEmpty()) return;
-
-    final String iconPath = iconField.getText().trim();
-    new Thread(() -> runExport(sketch, listener, selected, iconPath)).start();
-  }
-
-  private String getInstallHint(ExportTarget t) {
-    String os = System.getProperty("os.name","").toLowerCase();
-    boolean isWin = os.contains("win");
-    if (isWin) {
-      switch (t) {
-        case WINDOWS_X64: return "opens MSYS2 installer";
-        case LINUX_X64: case LINUX_ARM64: case LINUX_ARM32:
-          return "requires Linux - export from a Linux machine";
-        case MACOS_X64: case MACOS_ARM64: return "opens osxcross guide";
-        default: return "";
-      }
-    }
-    switch (t) {
-      case WINDOWS_X64: return isWin ? "opens MSYS2 installer" : "pacman -S mingw-w64-gcc";
-      case LINUX_X64:   return "downloads ~50MB toolchain";
-      case LINUX_ARM64: return "downloads ~100MB toolchain";
-      case LINUX_ARM32: return "downloads ~100MB toolchain";
-      case MACOS_X64: case MACOS_ARM64: return "opens osxcross guide";
-      default: return "";
-    }
-  }
-
-  private boolean installCompilerForTarget(ExportTarget t, RunnerListener listener) {
-    String os = System.getProperty("os.name","").toLowerCase();
-    boolean isWin = os.contains("win");
-    try {
-
-
-
-      String cmd = null;
-      switch (t) {
-        case WINDOWS_X64:
-          if (isWin) {
-            // On Windows, need MSYS2
-            java.awt.Desktop.getDesktop().browse(new java.net.URI("https://www.msys2.org"));
-            javax.swing.JOptionPane.showMessageDialog(null,
-              "<html><b>Opening MSYS2 download page.</b><br><br>" +
-              "After installing MSYS2, open the MSYS2 terminal and run:<br><br>" +
-              "<code>pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-glfw mingw-w64-x86_64-glew</code><br><br>" +
-              "Then restart Processing and try again.</html>",
-              "Install MSYS2", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-            return false;
-          }
-          cmd = cmdExists("yay")
-            ? "yay -S --noconfirm --needed mingw-w64-gcc mingw-w64-glfw mingw-w64-glew"
-            : "pkexec pacman -S --noconfirm --needed mingw-w64-gcc mingw-w64-glfw mingw-w64-glew";
-          break;
-        case LINUX_X64:
-        case LINUX_ARM64:
-        case LINUX_ARM32:
-          if (isWin) {
-            javax.swing.JOptionPane.showMessageDialog(null,
-              "<html><b>Linux export not available on Windows.</b><br><br>" +
-              "C++ must be compiled natively for each platform.<br><br>" +
-              "To build Linux exports:<br>" +
-              "&nbsp;&nbsp;â¢ Open this sketch on a Linux machine<br>" +
-              "&nbsp;&nbsp;â¢ Use File â Export Application there<br><br>" +
-              "The exported Linux AppImage will run on any Linux distro.</html>",
-              "Linux Export", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-            return false;
-          }
-          // On Linux/Mac: download musl toolchain
-          return downloadMuslToolchain(t, listener);
-        case MACOS_X64: case MACOS_ARM64:
-          java.awt.Desktop.getDesktop().browse(
-            new java.net.URI("https://github.com/tpoechtrager/osxcross#installation"));
-          javax.swing.JOptionPane.showMessageDialog(null,
-            "<html><b>Opening osxcross setup guide.</b><br><br>" +
-            "Follow the instructions to install osxcross,<br>" +
-            "then add it to your PATH and restart Processing.</html>",
-            "macOS Cross-Compiler", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-          return false;
-        default: return false;
-      }
-      if (cmd != null) {
-        listener.statusNotice("Installing " + t.label + " compiler...");
-        ProcessBuilder pb = isWin
-          ? toolchainEnv(new ProcessBuilder("cmd", "/c", cmd))
-          : toolchainEnv(new ProcessBuilder("bash", "-c", cmd));
-        pb.redirectErrorStream(true);
-        Process p = pb.start();
-        StringBuilder out = new StringBuilder();
-        try (java.io.BufferedReader br = new java.io.BufferedReader(
-            new java.io.InputStreamReader(p.getInputStream()))) {
-          String line;
-          while ((line = br.readLine()) != null) {
-            System.out.println("[install] " + line);
-            out.append(line).append('\n');
-          }
-        }
-        int ret = p.waitFor();
-        if (ret != 0) {
-          String log = out.toString();
-          String snippet = log.length() > 800 ? log.substring(log.length()-800) : log;
-          javax.swing.SwingUtilities.invokeLater(() ->
-            javax.swing.JOptionPane.showMessageDialog(null,
-              "<html><b>Install failed (exit " + ret + ")</b><br><br>" +
-              "<pre>" + snippet.replace("<","&lt;").replace(">","&gt;") + "</pre></html>",
-              "Install Failed", javax.swing.JOptionPane.ERROR_MESSAGE));
-          return false;
-        }
-        return true;
-      }
-    } catch (Exception e) {
-      System.err.println("Install failed: " + e.getMessage());
-      javax.swing.JOptionPane.showMessageDialog(null,
-        "<html>Install failed: " + e.getMessage() + "</html>",
-        "Install Error", javax.swing.JOptionPane.ERROR_MESSAGE);
-    }
-    return false;
-  }
-
-  private void runExport(Sketch sketch, RunnerListener listener,
-                         java.util.List<ExportTarget> targets, String iconPath) {
-    listener.statusNotice("Exporting...");
-    String skName = sketch.getName();
-    File outBase = new File(sketch.getFolder().getParentFile(), skName + "-export");
-    outBase.mkdirs();
-    String modeSrc = runtimeDir.getParentFile().getAbsolutePath() + "/src";
-
-    // Use writeSketch() to preprocess the sketch into Sketch_run.cpp
-    java.util.List<File> sources = new java.util.ArrayList<>();
-    File exportBuildDir = sketch.makeTempFolder();
-    try {
-      // writeSketch produces Sketch_run.cpp with all preprocessing done
-      CppBuild helper = new CppBuild(sketch, mode);
-      helper.writeSketch(listener);
-      File sketchCpp = new File(helper.buildDir, "Sketch_run.cpp");
-      if (sketchCpp.exists()) {
-        sources.add(sketchCpp);
-      } else {
-        throw new Exception("Sketch_run.cpp not found after writeSketch");
-      }
-    } catch (Exception ex) {
-      // Fallback: copy .pde as .cpp
-      for (processing.app.SketchCode sc : sketch.getCode()) {
-        File f = sc.getFile();
-        if (f != null && f.exists()) {
-          String name = f.getName().replaceAll("\\.pde$", ".cpp");
-          File cpp = new File(exportBuildDir, name);
-          try {
-            java.nio.file.Files.copy(f.toPath(), cpp.toPath(),
-              java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            sources.add(cpp);
-          } catch (Exception ignored) {}
-        }
-      }
-    }
-    if (sources.isEmpty()) { listener.statusError("No source files"); return; }
-
-    // Auto-install missing dependencies for each target before compiling
-    installExportDeps(targets, listener);
-
-    int done = 0;
-    java.util.List<String> results = new java.util.ArrayList<>();
-    for (ExportTarget t : targets) {
-      listener.statusNotice("Exporting " + t.label + "...");
-      try {
-        exportTarget(sketch, t, outBase, modeSrc, skName, sources, listener, iconPath);
-        results.add("\u2713 " + t.label); done++;
-      } catch (Exception ex) {
-        results.add("\u2717 " + t.label + ": " + ex.getMessage());
-        System.err.println("Export failed " + t.label + ": " + ex.getMessage());
-      }
-    }
-
-    final int d = done, tot = targets.size();
-    final String sum = String.join("<br>", results);
-    final String path = outBase.getAbsolutePath();
-    listener.statusNotice(d + "/" + tot + " targets exported");
-    javax.swing.SwingUtilities.invokeLater(() -> {
-      javax.swing.JOptionPane.showMessageDialog(null,
-        "<html><b>Export: " + d + "/" + tot + " targets</b><br><br>"
-        + sum + "<br><br>Output: " + path + "</html>",
-        "Export Result", d>0
-          ? javax.swing.JOptionPane.INFORMATION_MESSAGE
-          : javax.swing.JOptionPane.ERROR_MESSAGE);
-      if (d > 0) {
-        try { toolchainEnv(new ProcessBuilder("xdg-open", path)).start(); }
-        catch (Exception ignored) {}
-      }
-    });
-  }
-
-  private void exportTarget(Sketch sketch, ExportTarget t,
-                            File outBase, String modeSrc, String skName,
-                            java.util.List<File> sources,
-                            RunnerListener listener, String iconPath) throws Exception {
-    File dir = new File(outBase, t.dirName); dir.mkdirs();
-    String binName = skName + (t.isWindows ? ".exe" : "");
-    File binOut = new File(dir, binName);
-
-    java.util.List<String> cmd = new java.util.ArrayList<>();
-    String os = System.getProperty("os.name","").toLowerCase();
-    boolean onWin = os.contains("win");
-    if (onWin && t == ExportTarget.WINDOWS_X64) {
-      // Native Windows build - find MSYS2 g++
-      String compiler = "g++";
-      String[] msysPaths = {
-        "C:\\msys64\\mingw64\\bin\\g++.exe",
-        "C:\\msys2\\mingw64\\bin\\g++.exe",
-        System.getProperty("user.home") + "\\msys64\\mingw64\\bin\\g++.exe"
-      };
-      for (String p : msysPaths)
-        if (new File(p).exists()) { compiler = p; break; }
-      cmd.add(compiler);
-    } else if (!t.isWindows && t != ExportTarget.MACOS_X64
-               && t != ExportTarget.MACOS_ARM64) {
-      // Linux targets: use bundled musl toolchain if available
-      File muslComp = getMuslCompiler(t);
-      if (muslComp != null) {
-        cmd.add(muslComp.getAbsolutePath());
-      } else {
-        cmd.add(t.compiler); // fall back to system compiler
-      }
-    } else {
-      cmd.add(t.compiler);
-    }
-    cmd.add("-std=" + bestCppStd(t.compiler)); cmd.add("-O2");
-    for (File s : sources) cmd.add(s.getAbsolutePath());
-    // Use pre-built cached .o if available for this target
-    String exportCacheDir = t.isWindows ? "cache/windows-x64"
-      : (t == ExportTarget.LINUX_ARM64 ? "cache/linux-arm64"
-      : (t == ExportTarget.LINUX_ARM32 ? "cache/linux-arm32"
-      : "cache/linux-x64"));
-    File exportCache = new File(runtimeDir.getParentFile(), exportCacheDir);
-    File cachedProcessingO = new File(exportCache, "Processing.o");
-    File cachedDefaultsO   = new File(exportCache, "Processing_defaults.o");
-    if (cachedProcessingO.exists()) {
-      cmd.add(cachedProcessingO.getAbsolutePath());
-    } else {
-      cmd.add(modeSrc + "/Processing.cpp");
-    }
-    if (cachedDefaultsO.exists()) {
-      cmd.add(cachedDefaultsO.getAbsolutePath());
-    } else {
-      cmd.add(modeSrc + "/Processing_defaults.cpp");
-    }
-    cmd.add("-I" + modeSrc);
-    cmd.add("-DPROCESSING_HAS_STB_IMAGE");
-    // Debug mode (and the website base URL used in error messages) are
-    // both controlled by config/cppmode.properties, a single
-    // consolidated file at the root of the CppMode folder (a sibling of
-    // src/). Shipped builds always have debug=0. To see PDEBUG(...)
-    // output, edit that file to set debug=1 and re-run the sketch --
-    // no environment variables to remember, no rebuilding CppBuild
-    // itself, works the same regardless of which terminal (or none at
-    // all) launched the IDE. This is the SAME file scripts/rebuild-
-    // engine.sh reads for the standalone engine-rebuild path, so both
-    // ways of building stay in sync automatically.
-    java.io.File configFile = new java.io.File(runtimeDir.getParentFile(), "config/cppmode.properties");
-    if (configFile.exists()) {
-      try {
-        java.util.Properties props = new java.util.Properties();
-        try (java.io.InputStream in = new java.io.FileInputStream(configFile)) {
-          props.load(in);
-        }
-        if ("1".equals(props.getProperty("debug", "0").trim())) {
-          cmd.add("-DPROCESSING_DEBUG");
-        }
-        String websiteUrl = props.getProperty("website.base.url");
-        if (websiteUrl != null && !websiteUrl.trim().isEmpty()) {
-          cmd.add("-DPROCESSING_WEBSITE_URL=\"" + websiteUrl.trim() + "\"");
-        }
-      } catch (java.io.IOException e) {
-        // If the config file can't be read for some reason, just
-        // proceed with a normal, non-debug build rather than failing
-        // the compile entirely over a missing diagnostic toggle.
-      }
-    }
-    cmd.add("-DPROCESSING_EXPORT");
-
-
-    // main() is now emitted inside Sketch_run.cpp -- don't link main.cpp separately
-
-    // For Windows: pre-compile icon resource and add to link
-    if (t.isWindows && iconPath != null && !iconPath.isEmpty()
-        && new File(iconPath).exists()) {
-      File resFile = compileIconResource(iconPath, dir, t);
-      if (resFile != null) cmd.add(resFile.getAbsolutePath());
-    }
-
-    if (t.isWindows)      addWinFlags(cmd);
-    else if (t==ExportTarget.MACOS_X64 || t==ExportTarget.MACOS_ARM64) addMacFlags(cmd);
-    else                  addLinuxFlags(cmd);
-
-    cmd.add("-o"); cmd.add(binOut.getAbsolutePath());
-
-    System.out.println("$ " + String.join(" ", cmd));
-    ProcessBuilder pb = toolchainEnv(new ProcessBuilder(cmd));
-    pb.redirectErrorStream(true);
-    pb.directory(sketch.getFolder());
-    Process p = pb.start();
-    StringBuilder log = new StringBuilder();
-    try (java.io.BufferedReader br = new java.io.BufferedReader(
-        new java.io.InputStreamReader(p.getInputStream()))) {
-      String line; while ((line=br.readLine())!=null) { System.out.println(line); log.append(line).append("\n"); }
-    }
-    if (p.waitFor() != 0) throw new Exception(log.substring(0, Math.min(400, log.length())));
-
-    // Post-build
-    if (t.isWindows) { mkBat(dir, binName); } // no DLLs needed - statically linked
-    else if (t==ExportTarget.MACOS_X64 || t==ExportTarget.MACOS_ARM64) mkAppBundle(dir, skName, binOut, iconPath);
-    else {
-      // Try to produce an AppImage (single-file, shows icon in Dolphin)
-      boolean madeAppImage = mkAppImage(dir, binName, skName, iconPath, listener);
-      if (!madeAppImage) mkSh(dir, binName); // fallback to run.sh
-    }
-
-    // Copy data/
-    File data = new File(sketch.getFolder(), "data");
-    if (data.exists()) copyDir(data, new File(dir, "data"));
-
-    // Copy font
-    File fontSrc = new File(runtimeDir.getParentFile(), "fonts/ProcessingSansPro-Regular.ttf");
-    if (fontSrc.exists()) copyFile(fontSrc, new File(dir, "ProcessingSansPro-Regular.ttf"));
-  }
-
-  private void addLinuxFlags(java.util.List<String> cmd) {
-    // Use static GLFW/GLEW if available, otherwise dynamic
-    boolean staticGlfw = new java.io.File("/usr/lib/libglfw3.a").exists()
-                      || new java.io.File("/usr/local/lib/libglfw3.a").exists();
-    boolean staticGlew = new java.io.File("/usr/lib/libGLEW.a").exists()
-                      || new java.io.File("/usr/local/lib/libGLEW.a").exists();
-    if (staticGlfw && staticGlew) {
-      cmd.add("-Wl,-Bstatic"); cmd.add("-lglfw3"); cmd.add("-lGLEW");
-      cmd.add("-Wl,-Bdynamic");
-    } else {
-      cmd.add("-lglfw"); cmd.add("-lGLEW");
-    }
-    cmd.add("-lGL"); cmd.add("-lm"); cmd.add("-ldl"); cmd.add("-lpthread");
-    cmd.add("-lX11"); cmd.add("-lXrandr"); cmd.add("-lXi");
-    cmd.add("-lXxf86vm"); cmd.add("-lXinerama"); cmd.add("-lXcursor");
-    cmd.add("-static-libgcc"); cmd.add("-static-libstdc++");
-  }
-
-  private void addWinFlags(java.util.List<String> cmd) {
-    String os = System.getProperty("os.name","").toLowerCase();
-    String[] roots;
-    if (os.contains("win")) {
-      // On Windows, use MSYS2 mingw64 paths
-      roots = new String[]{
-        "C:\\msys64\\mingw64",
-        "C:\\msys2\\mingw64",
-        System.getProperty("user.home") + "\\msys64\\mingw64"
-      };
-    } else {
-      // On Linux, use cross-compile sysroot
-      roots = new String[]{
-        "/usr/x86_64-w64-mingw32",
-        "/usr/local/x86_64-w64-mingw32",
-        "/opt/mingw-w64/x86_64-w64-mingw32"
-      };
-    }
-    String root = roots[0];
-    for (String r : roots) if (new File(r+(os.contains("win")?"\\lib":"/lib")).exists()) { root=r; break; }
-    String sep = os.contains("win") ? "\\" : "/";
-
-    // Include paths - add all that exist
-    for (String inc : new String[]{root+sep+"include", root+sep+"include"+sep+"GL"})
-      if (new File(inc).exists()) cmd.add("-I"+inc);
-
-    // Lib path
-    cmd.add("-L"+root+sep+"lib");
-
-    // Also try bin dir for DLL import libs
-    if (new File(root+sep+"bin").exists()) cmd.add("-L"+root+sep+"bin");
-
-    // Link libraries - DLLs shipped alongside exe
-    cmd.add("-lglfw3");
-    cmd.add("-lglew32");
-    cmd.add("-lopengl32");
-    cmd.add("-lgdi32");
-    cmd.add("-luser32");
-    cmd.add("-lshell32");
-    cmd.add("-lwinmm");
-    cmd.add("-lole32");
-    cmd.add("-luuid");
-    cmd.add("-mwindows");       // WinMain = no console terminal
-    cmd.add("-static-libgcc");
-    cmd.add("-static-libstdc++");
-  }
-
-  private void addMacFlags(java.util.List<String> cmd) {
-    String[] roots = {
-      System.getProperty("user.home")+"/osxcross/target/SDK/MacOSX14.0.sdk",
-      "/opt/osxcross/target/SDK/MacOSX14.0.sdk"
-    };
-    for (String r : roots) if (new File(r).exists()) { cmd.add("--sysroot="+r); break; }
-    cmd.add("-framework"); cmd.add("OpenGL");
-    cmd.add("-framework"); cmd.add("Cocoa");
-    cmd.add("-framework"); cmd.add("IOKit");
-    cmd.add("-framework"); cmd.add("CoreVideo");
-    cmd.add("-lglfw"); cmd.add("-lGLEW");
-    cmd.add("-mmacosx-version-min=11.0");
-  }
-
-  private void copyWinDlls(File dir) {
-    String[] dlls = {"glfw3.dll","glew32.dll","libgcc_s_seh-1.dll",
-                     "libstdc++-6.dll","libwinpthread-1.dll"};
-    // Bundled DLLs ship with CppMode - use these first (always available)
-    File bundledLibs = new File(runtimeDir.getParentFile(), "libs/windows-x64");
-    // Fallback: system mingw installation
-    String[] searchRoots = {
-      bundledLibs.getAbsolutePath(),
-      "/usr/x86_64-w64-mingw32/bin",
-      "/usr/x86_64-w64-mingw32/lib",
-      "/usr/lib/gcc/x86_64-w64-mingw32"
-    };
-    for (String dll : dlls) {
-      File found = findFile(dll, searchRoots);
-      if (found != null) {
-        try { copyFile(found, new File(dir, dll)); System.out.println("[dll] copied " + dll); }
-        catch (Exception e) { System.err.println("[dll] failed " + dll + ": " + e.getMessage()); }
-      } else {
-        System.err.println("[dll] WARNING: not found: " + dll);
-      }
-    }
-  }
-
-  private File findFile(String name, String[] roots) {
-    for (String root : roots) {
-      File f = new File(root, name);
-      if (f.exists()) return f;
-      // Search one level deep
-      File dir = new File(root);
-      if (dir.exists() && dir.listFiles() != null) {
-        for (File sub : dir.listFiles()) {
-          if (sub.isDirectory()) {
-            File f2 = new File(sub, name);
-            if (f2.exists()) return f2;
-            // One more level
-            if (sub.listFiles() != null) {
-              for (File sub2 : sub.listFiles()) {
-                if (sub2.isDirectory()) {
-                  File f3 = new File(sub2, name);
-                  if (f3.exists()) return f3;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  private void mkBat(File dir, String bin) throws Exception {
-    String skName = bin.replace(".exe","");
-    try (PrintWriter pw = new PrintWriter(new File(dir,"run.bat"))) {
-      pw.println("@echo off");
-      pw.println("cd /d \"%~dp0\"");
-      pw.println("set PROCESSING_SKETCH_NAME=" + skName);
-      pw.println("set PROCESSING_SKETCH_PATH=%CD%");
-      pw.println("start \"\" \"" + bin + "\"");
-    }
-    try (PrintWriter pw = new PrintWriter(new File(dir,"launch.vbs"))) {
-      pw.println("Set sh = CreateObject(\"WScript.Shell\")");
-      pw.println("sh.CurrentDirectory = CreateObject(\"Scripting.FileSystemObject\").GetParentFolderName(WScript.ScriptFullName)");
-      pw.println("sh.Run Chr(34) & sh.CurrentDirectory & \"\\\\" + bin + "\" & Chr(34), 0, False");
-    }
-  }
-
-  private void mkSh(File dir, String bin) throws Exception {
-    String skName = bin;
-    File sh = new File(dir,"run.sh");
-    try (PrintWriter pw = new PrintWriter(sh)) {
-      pw.println("#!/bin/bash");
-      pw.println("cd \"$(dirname \"$0\")\"");
-      pw.println("export PROCESSING_SKETCH_NAME=\"" + skName + "\"");
-      pw.println("export PROCESSING_SKETCH_PATH=\"$(pwd)\"");
-      pw.println("./" + bin + " \"$@\"");
-    }
-    sh.setExecutable(true);
-    new File(dir,bin).setExecutable(true);
-  }
-
-  private void mkAppBundle(File dir, String name, File bin, String iconPath) throws Exception {
-    File app = new File(dir, name + ".app");
-    File macosDir = new File(app, "Contents/MacOS"); macosDir.mkdirs();
-    File res = new File(app, "Contents/Resources"); res.mkdirs();
-    File bundleBin = new File(macosDir, name);
-    if (bin.exists()) { bin.renameTo(bundleBin); bundleBin.setExecutable(true); }
-    try (PrintWriter pw = new PrintWriter(new File(app, "Contents/Info.plist"))) {
-      pw.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-      pw.println("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">");
-      pw.println("<plist version=\"1.0\"><dict>");
-      pw.println("  <key>CFBundleName</key><string>" + name + "</string>");
-      pw.println("  <key>CFBundleExecutable</key><string>" + name + "</string>");
-      pw.println("  <key>CFBundleIdentifier</key><string>processing.cpp." + name + "</string>");
-      pw.println("  <key>CFBundleVersion</key><string>1.0</string>");
-      pw.println("  <key>CFBundlePackageType</key><string>APPL</string>");
-      pw.println("  <key>NSHighResolutionCapable</key><true/>");
-      if (iconPath != null && !iconPath.isEmpty() && new File(iconPath).exists()) {
-        pw.println("  <key>CFBundleIconFile</key><string>" + name + "</string>");
-        try { copyFile(new File(iconPath), new File(res, name + ".png")); } catch (Exception ignored) {}
-      }
-      pw.println("</dict></plist>");
-    }
-    // run.sh inside bundle
-    File sh = new File(macosDir, "run.sh");
-    try (PrintWriter pw = new PrintWriter(sh)) {
-      pw.println("#!/bin/bash");
-      pw.println("cd \"$(dirname \"$0\")\"");
-      pw.println("export PROCESSING_SKETCH_NAME=\"" + name + "\"");
-      pw.println("./" + name + " \"$@\"");
-    }
-    sh.setExecutable(true);
-  }
-
-  private void embedIcon(File bin, ExportTarget t, String iconPng, File outDir) {
-    try {
-      if (t.isWindows) embedIconWindows(bin, iconPng, outDir);
-      else if (t == ExportTarget.LINUX_X64 || t == ExportTarget.LINUX_ARM64
-            || t == ExportTarget.LINUX_ARM32) {
-        // Copy icon.png next to binary for Linux
-        copyFile(new File(iconPng), new File(outDir, "icon.png"));
-        // Create .desktop file
-        File desktop = new File(outDir, bin.getName() + ".desktop");
-        try (PrintWriter pw = new PrintWriter(desktop)) {
-          pw.println("[Desktop Entry]");
-          pw.println("Type=Application");
-          pw.println("Name=" + bin.getName());
-          pw.println("Exec=" + bin.getAbsolutePath());
-          pw.println("Icon=" + new File(outDir, "icon.png").getAbsolutePath());
-          pw.println("Terminal=false");
-        }
-      }
-    } catch (Exception e) { System.err.println("[icon] " + e.getMessage()); }
-  }
-
-  private void embedIconWindows(File exe, String iconPng, File outDir) throws Exception {
-    // Convert PNG -> ICO using ImageMagick
-    File icoFile = new File(outDir, "_icon.ico");
-    String convert = System.getProperty("os.name","").toLowerCase().contains("win") ? "magick" : "convert";
-    if (cmdExists(convert)) {
-      toolchainEnv(new ProcessBuilder(convert, iconPng,
-        "-define", "icon:auto-resize=256,128,64,48,32,16",
-        icoFile.getAbsolutePath()))
-        .redirectErrorStream(true).start().waitFor();
-    }
-    if (!icoFile.exists()) {
-      System.err.println("[icon] ICO conversion failed - copying PNG alongside exe");
-      copyFile(new File(iconPng), new File(outDir, "icon.png"));
-      return;
-    }
-    // Create .rc and compile with windres
-    File rcFile = new File(outDir, "_icon.rc");
-    try (PrintWriter pw = new PrintWriter(rcFile)) {
-      pw.println("1 ICON \"" + icoFile.getAbsolutePath().replace("\\", "/") + "\"");
-    }
-    String windres = cmdExists("x86_64-w64-mingw32-windres")
-      ? "x86_64-w64-mingw32-windres" : "windres";
-    File resFile = new File(outDir, "_icon.res");
-    int rc = toolchainEnv(new ProcessBuilder(windres, rcFile.getAbsolutePath(),
-      "-O", "coff", "-o", resFile.getAbsolutePath()))
-      .redirectErrorStream(true).start().waitFor();
-    // Clean up temp files; copy ico alongside exe regardless
-    copyFile(icoFile, new File(outDir, exe.getName().replace(".exe","") + ".ico"));
-    icoFile.delete(); rcFile.delete(); resFile.delete();
-    System.out.println("[icon] Windows icon created alongside exe");
-  }
-
-  private void installExportDeps(java.util.List<ExportTarget> targets, RunnerListener listener) {
-    boolean needsWin = targets.stream().anyMatch(t -> t.isWindows);
-    boolean needsLinux = targets.stream().anyMatch(t ->
-      t==ExportTarget.LINUX_X64||t==ExportTarget.LINUX_ARM64||t==ExportTarget.LINUX_ARM32);
-    if (needsWin) {
-      boolean glfwOk = new File("/usr/x86_64-w64-mingw32/lib/libglfw3.a").exists()
-                    || new File("/usr/x86_64-w64-mingw32/lib/libglfw3dll.a").exists();
-      boolean glewOk = new File("/usr/x86_64-w64-mingw32/include/GL/glew.h").exists();
-      if (!glfwOk || !glewOk) {
-        listener.statusNotice("Installing Windows cross-compile libs...");
-        try {
-          String cmd = cmdExists("yay")
-            ? "yay -S --noconfirm --needed mingw-w64-glfw mingw-w64-glew"
-            : "pkexec pacman -S --noconfirm --needed mingw-w64-glfw mingw-w64-glew";
-          toolchainEnv(new ProcessBuilder("bash","-c",cmd)).inheritIO().start().waitFor();
-        } catch (Exception ignored) {}
-      }
-    }
-    if (needsLinux) {
-      boolean glfwOk = new File("/usr/lib/libglfw3.a").exists()
-                    || new File("/usr/lib/libglfw.so").exists();
-      if (!glfwOk) {
-        listener.statusNotice("Installing Linux native libs...");
-        try {
-          String cmd = cmdExists("pacman")
-            ? "pkexec pacman -S --noconfirm --needed glfw-x11 glew"
-            : "pkexec apt-get install -y libglfw3-dev libglew-dev";
-          toolchainEnv(new ProcessBuilder("bash","-c",cmd)).inheritIO().start().waitFor();
-        } catch (Exception ignored) {}
-      }
-    }
-  }
-
-  private void copyFile(File src, File dst) throws Exception {
-    dst.getParentFile().mkdirs();
-    Files.copy(src.toPath(), dst.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-  }
-
-  private void copyDir(File src, File dst) throws Exception {
-    dst.mkdirs();
-    File[] files = src.listFiles();
-    if (files == null) return;
-    for (File f : files) {
-      if (f.isDirectory()) copyDir(f, new File(dst, f.getName()));
-      else copyFile(f, new File(dst, f.getName()));
-    }
-  }
-
-  private boolean mkAppImage(File dir, String binName, String skName,
-                             String iconPath, RunnerListener listener) {
-    try {
-      File tools = new File(runtimeDir.getParentFile(), "tools");
-      File appImageTool = new File(tools, "appimagetool-x86_64.AppImage");
-      if (!appImageTool.exists()) {
-        System.err.println("[appimage] appimagetool not found");
-        return false;
-      }
-
-      // Build AppDir
-      File appDir = new File(dir, skName + ".AppDir");
-      File usrBin = new File(appDir, "usr/bin");
-      usrBin.mkdirs();
-
-      // Copy binary
-      File binary = new File(dir, binName);
-      File bundledBin = new File(usrBin, skName);
-      copyFile(binary, bundledBin);
-      bundledBin.setExecutable(true);
-
-      // Copy data/ and font
-      File dataDir = new File(dir, "data");
-      if (dataDir.exists()) copyDir(dataDir, new File(usrBin, "data"));
-      File font = new File(dir, "ProcessingSansPro-Regular.ttf");
-      if (font.exists()) copyFile(font, new File(usrBin, "ProcessingSansPro-Regular.ttf"));
-
-      // Icon - use skName directly, no dashes (Dolphin is picky)
-      String iconName = skName;
-      File iconDst = new File(appDir, iconName + ".png");
-      if (iconPath != null && !iconPath.isEmpty() && new File(iconPath).exists()) {
-        copyFile(new File(iconPath), iconDst);
-      } else if (cmdExists("convert")) {
-        toolchainEnv(new ProcessBuilder("convert", "-size", "256x256", "xc:#3366cc",
-          iconDst.getAbsolutePath())).redirectErrorStream(true).start().waitFor();
-      }
-      // .DirIcon is required for Dolphin/Nautilus to show the icon
-      if (iconDst.exists()) copyFile(iconDst, new File(appDir, ".DirIcon"));
-
-      // .desktop file
-      File desktop = new File(appDir, skName + ".desktop");
-      try (PrintWriter pw = new PrintWriter(desktop)) {
-        pw.println("[Desktop Entry]");
-        pw.println("Version=1.0");
-        pw.println("Type=Application");
-        pw.println("Name=" + skName);
-        pw.println("Comment=Made with Processing C++ Mode");
-        pw.println("Exec=" + skName);
-        pw.println("Icon=" + iconName);
-        pw.println("Terminal=false");
-        pw.println("Categories=Application;");
-      }
-
-      // AppRun - write via Files.write to avoid quote escaping issues
-      File appRun = new File(appDir, "AppRun");
-      String appRunContent = "#!/bin/bash\n"
-        + "SELF=$(readlink -f \"$0\")\n"
-        + "HERE=$(dirname \"$SELF\")\n"
-        + "export PROCESSING_SKETCH_NAME=" + skName + "\n"
-        + "export PROCESSING_SKETCH_PATH=\"$HERE/usr/bin\"\n"
-        + "cd \"$HERE/usr/bin\"\n"
-        + "exec \"$HERE/usr/bin/" + skName + "\" \"$@\"\n";
-      Files.write(appRun.toPath(), appRunContent.getBytes());
-      appRun.setExecutable(true);
-
-      // Run appimagetool
-      listener.statusNotice("Packaging AppImage...");
-      File appImageOut = new File(dir, skName + "-x86_64.AppImage");
-      ProcessBuilder pb = toolchainEnv(new ProcessBuilder(
-        appImageTool.getAbsolutePath(), "--no-appstream",
-        appDir.getAbsolutePath(), appImageOut.getAbsolutePath()));
-      pb.environment().put("ARCH", "x86_64");
-      pb.redirectErrorStream(true);
-      StringBuilder log = new StringBuilder();
-      Process p = pb.start();
-      try (java.io.BufferedReader br = new java.io.BufferedReader(
-          new java.io.InputStreamReader(p.getInputStream()))) {
-        String line;
-        while ((line = br.readLine()) != null) {
-          System.out.println("[appimage] " + line);
-          log.append(line).append('\n');
-        }
-      }
-      int exit = p.waitFor();
-      if (exit != 0 || !appImageOut.exists()) {
-        System.err.println("[appimage] failed:\n" + log);
-        return false;
-      }
-      appImageOut.setExecutable(true);
-      binary.delete();
-      deleteDir(appDir);
-
-      // Create a .desktop wrapper for Dolphin/file managers
-      // This avoids display rotation issues when launching AppImage from file manager
-      File desktopLauncher = new File(dir, skName + ".desktop");
-      String iconPath2 = (iconPath != null && !iconPath.isEmpty() && new File(iconPath).exists())
-        ? iconPath : "";
-      try (PrintWriter pw = new PrintWriter(desktopLauncher)) {
-        pw.println("[Desktop Entry]");
-        pw.println("Version=1.0");
-        pw.println("Type=Application");
-        pw.println("Name=" + skName);
-        pw.println("Comment=Made with Processing C++ Mode");
-        pw.println("Exec=bash -c \"cd $(dirname %k) && ./" + appImageOut.getName() + "\"");
-        pw.println("Icon=" + (iconPath2.isEmpty() ? "application-x-executable" : iconPath2));
-        pw.println("Terminal=false");
-        pw.println("Categories=Application;");
-        pw.println("StartupNotify=true");
-      }
-      desktopLauncher.setExecutable(true);
-      System.out.println("[appimage] created: " + appImageOut.getName());
-      return true;
-    } catch (Exception e) {
-      System.err.println("[appimage] " + e.getMessage());
       return false;
     }
+    return want;
   }
 
-  private void deleteDir(File d) {
-    if (!d.exists()) return;
-    File[] fs = d.listFiles();
-    if (fs != null) for (File f : fs) { if (f.isDirectory()) deleteDir(f); else f.delete(); }
-    d.delete();
+  /** Set by the editor's renderer dropdown; null means not chosen. */
+  public static volatile String selectedRenderer = null;
+
+  // cppmode-ship: where the libprocessing renderer comes from. Order: LIBPROCESSING_HOME,
+  // the copy bundled in the mode (libs/<platform>/libprocessing), then ~/lp-fork for development.
+  static String lpPlatform() {
+    String sys = System.getProperty("os.name").toLowerCase();
+    String arch = System.getProperty("os.arch").toLowerCase();
+    boolean arm = arch.contains("aarch64") || arch.contains("arm64");
+    if (sys.contains("win")) return "windows-x64";
+    if (sys.contains("mac")) return arm ? "macos-arm64" : "macos-x64";
+    return arm ? "linux-aarch64" : "linux-x64";
   }
 
+  static String lpLibName() {
+    String sys = System.getProperty("os.name").toLowerCase();
+    if (sys.contains("win")) return "processing.dll";
+    if (sys.contains("mac")) return "libprocessing.dylib";
+    return "libprocessing.so";
+  }
 
-
-
-  // Compile PNG icon into a Windows .res file for linking
-  private File compileIconResource(String iconPng, File outDir, ExportTarget t) {
+  /** The installed mode's folder, found from where CppMode.jar lives (mode/CppMode.jar). */
+  static File modeRoot() {
     try {
-      String os = System.getProperty("os.name","").toLowerCase();
-      boolean onWin = os.contains("win");
-
-      // PNG -> ICO using ImageMagick (magick on Windows, convert on Linux)
-      File icoFile = new File(outDir, "_icon_tmp.ico");
-      String imageMagick = onWin ? "magick" : "convert";
-
-      // On Windows, also try full MSYS2 path
-      if (onWin && !cmdExists("magick")) {
-        String[] magickPaths = {
-          "C:\\msys64\\usr\\bin\\magick.exe",
-          "C:\\msys64\\mingw64\\bin\\magick.exe",
-          "C:\\Program Files\\ImageMagick-7.0.0-Q16\\magick.exe"
-        };
-        for (String p : magickPaths)
-          if (new File(p).exists()) { imageMagick = p; break; }
-      }
-
-      if (!cmdExists(imageMagick) && !new File(imageMagick).exists()) {
-        System.err.println("[icon] ImageMagick not found - skipping icon embed");
-        System.err.println("[icon] Install ImageMagick: https://imagemagick.org/script/download.php#windows");
-        return null;
-      }
-
-      int rc = toolchainEnv(new ProcessBuilder(imageMagick, iconPng,
-        "-define", "icon:auto-resize=256,128,64,48,32,16",
-        icoFile.getAbsolutePath()))
-        .redirectErrorStream(true).start().waitFor();
-
-      if (rc != 0 || !icoFile.exists()) {
-        System.err.println("[icon] PNG->ICO conversion failed");
-        return null;
-      }
-
-      // .rc file - use forward slashes for windres
-      File rcFile = new File(outDir, "_icon_tmp.rc");
-      String icoPath = icoFile.getAbsolutePath().replace("\\", "/");
-      String rcContent = "1 ICON \"" + icoPath + "\"\n";
-      Files.write(rcFile.toPath(), rcContent.getBytes());
-
-      // Find windres - on Windows use MSYS2 windres, on Linux use mingw windres
-      String windres;
-      if (onWin) {
-        windres = "C:\\msys64\\mingw64\\bin\\windres.exe";
-        if (!new File(windres).exists())
-          windres = "C:\\msys2\\mingw64\\bin\\windres.exe";
-        if (!new File(windres).exists())
-          windres = "windres"; // fallback to PATH
-      } else {
-        windres = cmdExists("x86_64-w64-mingw32-windres")
-          ? "x86_64-w64-mingw32-windres" : "windres";
-      }
-
-      File resFile = new File(outDir, "_icon_tmp.res");
-      StringBuilder windresLog = new StringBuilder();
-      ProcessBuilder wpb = toolchainEnv(new ProcessBuilder(windres,
-        rcFile.getAbsolutePath(), "-O", "coff", "-o", resFile.getAbsolutePath()));
-      wpb.redirectErrorStream(true);
-      Process wp = wpb.start();
-      try (java.io.BufferedReader br = new java.io.BufferedReader(
-          new java.io.InputStreamReader(wp.getInputStream()))) {
-        String line; while ((line=br.readLine())!=null) windresLog.append(line).append('\n');
-      }
-      int rc2 = wp.waitFor();
-      icoFile.delete(); rcFile.delete();
-
-      if (rc2 != 0 || !resFile.exists()) {
-        System.err.println("[icon] windres failed: " + windresLog);
-        return null;
-      }
-      System.out.println("[icon] Windows icon resource compiled successfully");
-      return resFile;
+      File jar = new File(CppBuild.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+      return jar.getParentFile().getParentFile();
     } catch (Exception e) {
-      System.err.println("[icon] compileIconResource: " + e.getMessage());
       return null;
     }
   }
 
-
-  // ââ Musl cross-compiler toolchains (pre-built, no system install needed) ââ
-
-  private static final String MUSL_BASE = "https://musl.cc/";
-
-  private static final java.util.Map<ExportTarget, String[]> TOOLCHAIN_INFO =
-    new java.util.LinkedHashMap<ExportTarget, String[]>() {{
-      put(ExportTarget.LINUX_X64,   new String[]{
-        "x86_64-linux-musl-cross.tgz",
-        "x86_64-linux-musl-cross/bin/x86_64-linux-musl-g++"});
-      put(ExportTarget.LINUX_ARM64, new String[]{
-        "aarch64-linux-musl-cross.tgz",
-        "aarch64-linux-musl-cross/bin/aarch64-linux-musl-g++"});
-      put(ExportTarget.LINUX_ARM32, new String[]{
-        "armv7l-linux-musleabihf-cross.tgz",
-        "armv7l-linux-musleabihf-cross/bin/armv7l-linux-musleabihf-g++"});
-    }};
-
-  // Get the bundled musl toolchain compiler path for a target
-  private File getMuslCompiler(ExportTarget t) {
-    String[] info = TOOLCHAIN_INFO.get(t);
-    if (info == null) return null;
-    File toolsDir = new File(runtimeDir.getParentFile(), "tools/cross");
-    File compiler = new File(toolsDir, info[1]);
-    return compiler.exists() ? compiler : null;
+  static File bundledLibProcessing() {
+    File root = modeRoot();
+    if (root == null) return null;
+    File d = new File(root, "libs/" + lpPlatform() + "/libprocessing");
+    return new File(d, lpLibName()).isFile() ? d : null;
   }
 
-  // Check if musl toolchain is installed for target
-  private boolean muslToolchainInstalled(ExportTarget t) {
-    return getMuslCompiler(t) != null;
+  static File libProcessingHome() {
+    String env = System.getenv("LIBPROCESSING_HOME");
+    if (env != null && !env.isBlank()) return new File(env);
+    File bundled = bundledLibProcessing();
+    if (bundled != null) return bundled;
+    return new File(System.getProperty("user.home"), "lp-fork");
   }
 
-  // Download and extract musl toolchain with progress dialog
-  private boolean downloadMuslToolchain(ExportTarget t, RunnerListener listener) {
-    String[] info = TOOLCHAIN_INFO.get(t);
-    if (info == null) return false;
+  /** The folder holding the library itself, or null when it can't be found. */
+  static File libProcessingLibDir() {
+    File h = libProcessingHome();
+    for (File d : new File[]{h, new File(h, "target/release")})
+      if (new File(d, lpLibName()).isFile()) return d;
+    return null;
+  }
 
-    String tgzName = info[0];
-    String url = MUSL_BASE + tgzName;
-    File toolsDir = new File(runtimeDir.getParentFile(), "tools/cross");
-    toolsDir.mkdirs();
-    File tgzFile = new File(toolsDir, tgzName);
+  private static volatile boolean lpMissingReported = false;
 
-    // Progress dialog
-    javax.swing.JDialog prog = new javax.swing.JDialog((java.awt.Frame)null,
-      "Downloading " + t.label + " toolchain", false);
-    javax.swing.JProgressBar bar = new javax.swing.JProgressBar(0, 100);
-    bar.setStringPainted(true);
-    bar.setString("Connecting...");
-    javax.swing.JLabel lbl = new javax.swing.JLabel(
-      "  Downloading from musl.cc (~100MB)  ");
-    lbl.setBorder(javax.swing.BorderFactory.createEmptyBorder(8,12,4,12));
-    prog.setLayout(new java.awt.BorderLayout());
-    prog.add(lbl, java.awt.BorderLayout.NORTH);
-    prog.add(bar, java.awt.BorderLayout.CENTER);
-    prog.pack();
-    prog.setMinimumSize(new java.awt.Dimension(400, prog.getHeight()));
-    prog.setLocationRelativeTo(null);
-    prog.setVisible(true);
+  private static List<File> libProcessingIncludes() {
+    File h = libProcessingHome();
+    List<File> out = new ArrayList<>();
+    for (String sub : new String[]{"crates/processing_ffi/include", "crates/processing_ffi",
+                                   "include", "target/include", "target/release/include"}) {
+      File d = new File(h, sub);
+      if (d.isDirectory()) out.add(d);
+    }
+    return out;
+  }
 
-    try {
-      // Download with progress
-      java.net.URL urlObj = new java.net.URL(url);
-      java.net.HttpURLConnection conn =
-        (java.net.HttpURLConnection) urlObj.openConnection();
-      conn.setConnectTimeout(15000);
-      conn.setReadTimeout(60000);
-      long total = conn.getContentLengthLong();
-      listener.statusNotice("Downloading " + tgzName + "...");
-
-      try (java.io.InputStream in = conn.getInputStream();
-           java.io.FileOutputStream out = new java.io.FileOutputStream(tgzFile)) {
-        byte[] buf = new byte[65536];
-        long downloaded = 0;
-        int n;
-        while ((n = in.read(buf)) > 0) {
-          out.write(buf, 0, n);
-          downloaded += n;
-          if (total > 0) {
-            final int pct = (int)(downloaded * 100 / total);
-            final String mb = String.format("%.1f / %.1f MB",
-              downloaded/1048576.0, total/1048576.0);
-            javax.swing.SwingUtilities.invokeLater(() -> {
-              bar.setValue(pct);
-              bar.setString(mb);
-            });
-          }
-        }
+  /** One-time build of Processing.o / Processing_defaults.o with the backend define. */
+  private void buildLibProcessingCache(String gpp, String std, File cacheDir) throws Exception {
+    cacheDir.mkdirs();
+    for (String name : new String[]{"Processing", "Processing_defaults"}) {
+      File src = new File(runtimeDir, name + ".cpp");
+      if (!src.exists()) continue;
+      List<String> c = new ArrayList<>(List.of(gpp, "-std=" + std, "-O2", "-c",
+          "-DCPPMODE_BACKEND_LIBPROCESSING", "-DPROCESSING_HAS_STB_IMAGE", "-DPROCESSING_HAS_STB_TRUETYPE", "-I", runtimeDir.getAbsolutePath()));
+      // FreeType letters, when build-cache.py found FreeType for the OpenGL cache
+      File ftSrc = new File(runtimeDir.getParentFile(), "cache/linux-x64/freetype.flags");
+      if (name.equals("Processing") && ftSrc.exists() && new File("/usr/include/freetype2").isDirectory()) {
+        c.add("-I/usr/include/freetype2"); c.add("-DPROCESSING_USE_FREETYPE");
+        java.nio.file.Files.copy(ftSrc.toPath(), new File(cacheDir, "freetype.flags").toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
       }
-      conn.disconnect();
-
-      // Extract
-      bar.setString("Extracting...");
-      bar.setIndeterminate(true);
-      listener.statusNotice("Extracting " + tgzName + "...");
-
-      // Use tar command (available on Linux, Mac, and Windows 10+)
-      String os = System.getProperty("os.name","").toLowerCase();
-      ProcessBuilder pb;
-      if (os.contains("win")) {
-        pb = toolchainEnv(new ProcessBuilder("tar", "-xzf",
-          tgzFile.getAbsolutePath(), "-C", toolsDir.getAbsolutePath()));
-      } else {
-        pb = toolchainEnv(new ProcessBuilder("tar", "-xzf",
-          tgzFile.getAbsolutePath(), "-C", toolsDir.getAbsolutePath()));
+      File bundledInc = new File(runtimeDir.getParentFile(), "libs/include");
+      if (bundledInc.exists()) { c.add("-I"); c.add(bundledInc.getAbsolutePath()); }
+      for (File inc : libProcessingIncludes()) { c.add("-I"); c.add(inc.getAbsolutePath()); }
+      c.add(src.getAbsolutePath());
+      c.add("-o"); c.add(new File(cacheDir, name + ".o").getAbsolutePath());
+      System.err.println("[CppMode] building libprocessing cache: " + name + ".o");
+      Process pr = toolchainEnv(new ProcessBuilder(c)).redirectErrorStream(true).start();
+      String log = new String(pr.getInputStream().readAllBytes());
+      if (pr.waitFor() != 0) {
+        System.err.println(log);
+        throw new Exception("libprocessing cache build failed for " + name + ".cpp");
       }
-      pb.redirectErrorStream(true);
-      int exitCode = pb.start().waitFor();
-
-      tgzFile.delete(); // clean up archive after extraction
-      prog.dispose();
-
-      if (exitCode != 0 || !muslToolchainInstalled(t)) {
-        listener.statusError("Toolchain extraction failed");
-        return false;
-      }
-
-      // Make compiler executable (Linux/Mac)
-      File compiler = getMuslCompiler(t);
-      if (compiler != null) {
-        compiler.setExecutable(true);
-        // Make all binaries in bin/ executable
-        File binDir = compiler.getParentFile();
-        if (binDir.listFiles() != null)
-          for (File f : binDir.listFiles()) f.setExecutable(true);
-      }
-
-      listener.statusNotice(t.label + " toolchain ready");
-      return true;
-
-    } catch (Exception e) {
-      prog.dispose();
-      System.err.println("[toolchain] download failed: " + e.getMessage());
-      javax.swing.SwingUtilities.invokeLater(() ->
-        javax.swing.JOptionPane.showMessageDialog(null,
-          "<html><b>Download failed:</b><br>" + e.getMessage() + "<br><br>" +
-          "Check your internet connection and try again.</html>",
-          "Download Failed", javax.swing.JOptionPane.ERROR_MESSAGE));
-      if (tgzFile.exists()) tgzFile.delete();
-      return false;
     }
   }
 
-
-  public static String rewriteGccError(String line) {
-    line = line.replace("std::__cxx11::basic_string<char>", "String");
-    line = line.replace("std::basic_string<char>", "String");
-    line = line.replace("‘std::__cxx11::basic_string<char>’", "String");
-    line = line.replace("‘std::basic_string<char>’", "String");
-    line = line.replace("{aka ‘std::__cxx11::basic_string<char>’}", "");
-    if (line.contains("std::strong_ordering") || line.contains("std::weak_ordering") || line.contains("std::partial_ordering"))
-      line = line.replaceAll("std::(strong|weak|partial)_ordering", "comparison_result") + " — note: <=> returns a comparison result, not an int; use <, >, or == instead";
-    line = line.replace("Processing::Sketch::", "");
-    line = line.replace("Processing::PApplet::", "");
-    line = line.replace("Processing::", "");
-    if (line.contains("return-statement with a value") && line.contains("returning"))
-      return line.replaceAll("return-statement with a value.*", "cannot return a value from a void function");
-    if (line.contains("too few arguments to function"))
-      return line.replaceAll("too few arguments to function .(.+?).", "too few arguments to $1");
-    return line;
+  private static void addWindowsLinkFlags(List<String> cmd) {
+    cmd.addAll(List.of("-lglfw3", "-lglew32", "-lopengl32", "-lgdi32",
+        "-lwinmm", "-mwindows", "-DGLEW_STATIC"));
   }
 
+  private static void addMacLinkFlags(List<String> cmd) {
+    cmd.addAll(List.of(
+        "-framework", "OpenGL",
+        "-framework", "Cocoa",
+        "-framework", "IOKit",
+        "-framework", "CoreFoundation",
+        "-lglfw", "-lGLEW"));
+  }
 
+  private static void addLinuxLinkFlags(List<String> cmd) {
+    cmd.addAll(List.of("-lGL", "-lGLEW", "-lglfw", "-ldl", "-lm", "-lpthread"));
+  }
+
+  // ── g++ version probe ─────────────────────────────────────────────────────
+
+  /** Returns the best C++ standard supported by the given g++. */
+  public static String bestCppStd(String gpp) {
+    for (String std : new String[]{"c++23", "c++2b", "c++20", "c++17"}) {
+      try {
+        ProcessBuilder pb = toolchainEnv(new ProcessBuilder(gpp, "-std=" + std, "-x", "c++",
+            "-fsyntax-only", "-"));
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        p.getOutputStream().close();
+        p.getInputStream().readAllBytes();
+        if (p.waitFor() == 0) return std;
+      } catch (Exception ignored) {}
+    }
+    return "c++17";
+  }
+
+  private static int gppMajorVersion(String gpp) {
+    try {
+      Process p = Runtime.getRuntime().exec(new String[]{gpp, "--version"});
+      String out = new String(p.getInputStream().readAllBytes());
+      Matcher m = Pattern.compile("(\\d+)\\.\\d+\\.\\d+").matcher(out);
+      return m.find() ? Integer.parseInt(m.group(1)) : -1;
+    } catch (Exception e) { return -1; }
+  }
+
+  // ── g++ finder ────────────────────────────────────────────────────────────
+
+  public static String findGpp(boolean isWindows) {
+    if (isWindows) {
+      String appdata = System.getenv("APPDATA");
+      String home    = System.getProperty("user.home", "");
+      for (String p : new String[]{
+          (appdata != null ? appdata : "") + "\\CppMode\\gcc\\mingw64\\bin\\g++.exe",
+          "C:\\msys64\\mingw64\\bin\\g++.exe",
+          "C:\\msys2\\mingw64\\bin\\g++.exe",
+          home + "\\msys64\\mingw64\\bin\\g++.exe",
+          "C:\\msys64\\ucrt64\\bin\\g++.exe"}) {
+        if (new File(p).exists()) return p;
+      }
+    }
+    return "g++";
+  }
+
+  // ── g++ availability check ────────────────────────────────────────────────
+
+  // error code already printed during this build (shown above the compiler's text)
+  private static CppErrors.Hit shownHit;
+
+  private void checkGppAvailable(RunnerListener listener) throws Exception {
+    String os = System.getProperty("os.name", "").toLowerCase();
+    boolean isWin = os.contains("win");
+    boolean isMac = os.contains("mac");
+    String gpp = findGpp(isWin);
+
+    // Quick test: can we actually invoke it?
+    try {
+      Process p = Runtime.getRuntime().exec(new String[]{gpp, "--version"});
+      if (p.waitFor() == 0) return; // all good
+    } catch (Exception ignored) {}
+
+    // Not found — delegate to InstallWizard
+    if (InstallWizard.run(listener)) return;
+
+    String msg = isWin
+        ? "g++ not found — install MSYS2 or use the auto-installer."
+        : isMac
+          ? "g++ not found — install via: brew install gcc"
+          : "g++ not found — install via your package manager (e.g. apt install g++)";
+    listener.statusError(msg);
+    throw new Exception("g++ not found");
+  }
+
+  // ── Runtime asset copying ─────────────────────────────────────────────────
+
+  private void copyRuntimeAssets(File binary, boolean isWindows, boolean isMac)
+      throws Exception {
+    File sketchFolder = sketch.getFolder();
+
+    // default.ttf
+    File font = new File(runtimeDir, "default.ttf");
+    if (font.exists()) {
+      File dest = new File(sketchFolder, "default.ttf");
+      if (!dest.exists()) Files.copy(font.toPath(), dest.toPath());
+    }
+
+    // macOS: copy bundled dylibs so the binary can find them at runtime
+    if (isMac) {
+      File macLibsDir = new File(runtimeDir.getParentFile(), "libs/macos");
+      if (macLibsDir.exists()) {
+        File[] dylibs = macLibsDir.listFiles((d, n) -> n.endsWith(".dylib"));
+        if (dylibs != null) {
+          for (File dylib : dylibs) {
+            for (File destDir : new File[]{new File(binary.getParent()), sketchFolder}) {
+              try {
+                Files.copy(dylib.toPath(), new File(destDir, dylib.getName()).toPath(),
+                    StandardCopyOption.REPLACE_EXISTING);
+              } catch (Exception ignored) {}
+            }
+          }
+        }
+      }
+    }
+
+    // Windows: copy bundled DLLs
+    if (isWindows) {
+      File bundledDir = new File(runtimeDir.getParentFile(), "libs/windows-x64");
+      if (bundledDir.exists()) {
+        File binaryDir = new File(binary.getParent());
+        binaryDir.mkdirs();
+        File[] dlls = bundledDir.listFiles((d, n) -> n.endsWith(".dll"));
+        if (dlls != null) {
+          for (File dll : dlls) {
+            File dest = new File(binaryDir, dll.getName());
+            if (!dest.exists())
+              try { Files.copy(dll.toPath(), dest.toPath()); } catch (Exception ignored) {}
+          }
+        }
+      }
+    }
+  }
+
+  // ── Diagnostic printing ───────────────────────────────────────────────────
+
+  private static void printDiagnostic(String line) {
+    String rewritten = rewriteGccError(line);
+    if (line.contains("error:") || line.contains("warning:") || line.contains("note:")) {
+      System.err.println(rewritten);
+    } else if (!line.isBlank()) {
+      System.out.println(rewritten);
+    }
+  }
 }

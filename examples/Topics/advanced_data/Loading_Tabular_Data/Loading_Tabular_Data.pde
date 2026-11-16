@@ -81,12 +81,11 @@ void mousePressed() {
     if (!table) return;
 
     // Add a new row
-    std::vector<std::string>& row = table->addRow();
-    TableRow tr(row, table->columns);
-    tr.setFloat(table->getColumnIndex("x"),        mouseX);
-    tr.setFloat(table->getColumnIndex("y"),        mouseY);
-    tr.setFloat(table->getColumnIndex("diameter"), random(40, 80));
-    tr.setString(table->getColumnIndex("name"),    "Blah");
+    TableRow row = table->addRow();
+    row.setFloat("x", mouseX);
+    row.setFloat("y", mouseY);
+    row.setFloat("diameter", random(40, 80));
+    row.setString("name", "Blah");
 
     // Cap at 10 rows
     if (table->getRowCount() > 10) {

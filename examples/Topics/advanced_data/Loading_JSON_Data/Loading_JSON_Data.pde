@@ -29,29 +29,22 @@ struct Bubble {
 };
 
 std::vector<Bubble> bubbles;
-JSONValue json;
+JSONObject json;
 
 void loadData() {
     json = loadJSONObject("data/data.json");
-
-    if (!json.isObject() || !json.hasKey("bubbles")) {
-        println("Failed to load data.json");
-        return;
-    }
-
-    JSONArray& bubbleData = json["bubbles"].getArray();
+    JSONArray bubbleData = json.getJSONArray("bubbles");
     bubbles.clear();
 
-    for (auto& b : bubbleData) {
-        if (!b.hasKey("position")) continue;
-        float x           = b["position"]["x"].getFloat();
-        float y           = b["position"]["y"].getFloat();
-        float diameter    = b["diameter"].getFloat();
-        std::string label = b["label"].getString();
+    for (int i = 0; i < bubbleData.size(); i++) {
+        JSONObject bubble = bubbleData.getJSONObject(i);
+        JSONObject position = bubble.getJSONObject("position");
+        float x = position.getFloat("x");
+        float y = position.getFloat("y");
+        float diameter = bubble.getFloat("diameter");
+        std::string label = bubble.getString("label");
         bubbles.push_back(Bubble(x, y, diameter, label));
     }
-
-    println("Loaded " + std::to_string(bubbles.size()) + " bubbles");
 }
 
 void setup() {
@@ -71,24 +64,20 @@ void draw() {
 }
 
 void mousePressed() {
-    // Build position object
-    JSONObject pos;
-    pos["x"] = JSONValue((double)mouseX);
-    pos["y"] = JSONValue((double)mouseY);
-
-    // Build bubble object
     JSONObject newBubble;
-    newBubble["position"] = JSONValue(pos);
-    newBubble["diameter"] = JSONValue((double)random(40, 80));
-    newBubble["label"]    = JSONValue(std::string("New label"));
+    JSONObject position;
+    position.setInt("x", mouseX);
+    position.setInt("y", mouseY);
+    newBubble.setJSONObject("position", position);
+    newBubble.setFloat("diameter", random(40, 80));
+    newBubble.setString("label", "New label");
 
-    // Append to array
-    JSONArray& bubbleData = json["bubbles"].getArray();
-    bubbleData.push_back(JSONValue(newBubble));
-
-    if ((int)bubbleData.size() > 10) {
-        bubbleData.erase(bubbleData.begin());
+    JSONArray bubbleData = json.getJSONArray("bubbles");
+    bubbleData.append(newBubble);
+    if (bubbleData.size() > 10) {
+        bubbleData.remove(0);
     }
+    json.setJSONArray("bubbles", bubbleData);
 
     saveJSONObject("data/data.json", json);
     loadData();

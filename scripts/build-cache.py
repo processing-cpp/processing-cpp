@@ -68,7 +68,25 @@ if isMac:
             includeFlags += ["-I", prefix + "/include"]
             break
 
+import subprocess as _stub_sp, sys as _stub_sys, pathlib as _stub_pl
+_stub_sp.run([_stub_sys.executable, str(_stub_pl.Path(__file__).with_name('stub-libprocessing.py'))], check=False)
 defines = ["-DPROCESSING_HAS_STB_IMAGE", "-DPROCESSING_HAS_STB_TRUETYPE"]
+
+# FreeType (optional, Linux): hinted glyphs for sharper text. Only Processing.o
+# is built with it. The link flags go in a marker file so CppBuild adds them.
+import shutil as _sh, subprocess as _sp, sys as _sys
+ftFlags = []
+ftMarker = cacheDir / "freetype.flags"
+ftMarker.unlink(missing_ok=True)
+if _sys.platform.startswith("linux") and _sh.which("pkg-config"):
+    _c = _sp.run(["pkg-config", "--cflags", "freetype2"], capture_output=True, text=True)
+    _l = _sp.run(["pkg-config", "--libs", "freetype2"], capture_output=True, text=True)
+    if _c.returncode == 0 and _l.returncode == 0:
+        ftFlags = _c.stdout.split() + ["-DPROCESSING_USE_FREETYPE"]
+        ftMarker.write_text(_l.stdout.strip() + "\n")
+        print("FreeType: enabled (" + _l.stdout.strip() + ")")
+if not ftFlags:
+    print("FreeType: not used (stb_truetype only)")
 
 # 1. Build Processing.h.gch
 pchOut = cacheDir / "Processing.h.gch"
@@ -83,7 +101,7 @@ run([gpp, "-std=c++2c", "-O2",
 procO = cacheDir / "Processing.o"
 print(f"\nBuilding Processing.o...")
 run([gpp, "-std=c++2c", "-O2",
-     *includeFlags, *defines,
+     *includeFlags, *defines, *ftFlags,
      "-c", str(procCpp), "-o", str(procO)],
     f"Processing.cpp → {procO.name}")
 

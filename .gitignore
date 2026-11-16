@@ -1,3 +1,14 @@
 .zip
 cache/
 
+
+# libprocessing renderer builds: too big for git, ship them in releases instead
+libs/*/libprocessing/*.so
+libs/*/libprocessing/*.dylib
+libs/*/libprocessing/*.dll
+libs/*/libprocessing/*.dll.a
+libs/*/libprocessing/*.lib
+
+# local backups and JVM crash logs
+.bak/
+hs_err_pid*.log

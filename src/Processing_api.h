@@ -106,6 +106,7 @@ inline void box(float s)                               { if(::Processing::PApple
 inline void box(float w,float h,float d)               { if(::Processing::PApplet::g_papplet) ::Processing::PApplet::g_papplet->box(w,h,d); }
 inline void sphere(float r)                            { if(::Processing::PApplet::g_papplet) ::Processing::PApplet::g_papplet->sphere(r); }
 inline void sphereDetail(int res)                      { if(::Processing::PApplet::g_papplet) ::Processing::PApplet::g_papplet->sphereDetail(res); }
+inline void sphereDetail(int u, int v)                { if(::Processing::PApplet::g_papplet) ::Processing::PApplet::g_papplet->sphereDetail(u, v); }
 inline void camera()                                   { if(::Processing::PApplet::g_papplet) ::Processing::PApplet::g_papplet->camera(); }
 inline void camera(float ex,float ey,float ez,float cx,float cy,float cz,float ux,float uy,float uz){ if(::Processing::PApplet::g_papplet) ::Processing::PApplet::g_papplet->camera(ex,ey,ez,cx,cy,cz,ux,uy,uz); }
 inline void perspective()                              { if(::Processing::PApplet::g_papplet) ::Processing::PApplet::g_papplet->perspective(); }
@@ -187,18 +188,62 @@ inline void exit_sketch()                              { if(::Processing::PApple
 // These let user-defined classes (not inheriting _PSketch) access Processing
 // environment variables. Inside _PSketch, member variables shadow these.
 // Outside (hoisted classes), these resolve via g_papplet singleton.
-inline int   width()        { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->logicalW      : 0;    }
-inline int   height()       { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->logicalH      : 0;    }
-inline float mouseX()       { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseX        : 0.f;  }
-inline float mouseY()       { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseY        : 0.f;  }
-inline float pmouseX()      { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->pmouseX       : 0.f;  }
-inline float pmouseY()      { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->pmouseY       : 0.f;  }
-inline int   frameCount()   { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->frameCount    : 0;    }
-inline char  key()          { return ::Processing::PApplet::g_papplet ? (char)::Processing::PApplet::g_papplet->key     : 0;    }
-inline int   keyCode()      { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->keyCode       : 0;    }
-inline int   mouseButton()  { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseButton   : 0;    }
-inline bool  mousePressed() { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->_mousePressed : false; }
-inline bool  keyPressed()   { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->_keyPressed   : false; }
 inline float frameRate()    { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->_frameRate    : 0.f;  }
-inline float mouseDX()      { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseDX       : 0.f;  }
-inline float mouseDY()      { return ::Processing::PApplet::g_papplet ? ::Processing::PApplet::g_papplet->mouseDY       : 0.f;  }
+
+// Sketch state for user classes: read-only proxies, shadowed by PApplet members inside PSketch.
+struct _P_width { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->logicalW : 0; } };
+#ifndef CPPMODE_NO_PROXY_width
+inline _P_width width;
+#endif
+struct _P_height { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->logicalH : 0; } };
+#ifndef CPPMODE_NO_PROXY_height
+inline _P_height height;
+#endif
+struct _P_mouseX { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->mouseX : 0; } };
+#ifndef CPPMODE_NO_PROXY_mouseX
+inline _P_mouseX mouseX;
+#endif
+struct _P_mouseY { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->mouseY : 0; } };
+#ifndef CPPMODE_NO_PROXY_mouseY
+inline _P_mouseY mouseY;
+#endif
+struct _P_pmouseX { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->pmouseX : 0; } };
+#ifndef CPPMODE_NO_PROXY_pmouseX
+inline _P_pmouseX pmouseX;
+#endif
+struct _P_pmouseY { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->pmouseY : 0; } };
+#ifndef CPPMODE_NO_PROXY_pmouseY
+inline _P_pmouseY pmouseY;
+#endif
+struct _P_frameCount { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->frameCount : 0; } };
+#ifndef CPPMODE_NO_PROXY_frameCount
+inline _P_frameCount frameCount;
+#endif
+struct _P_key { operator char() const { return PApplet::g_papplet ? (char)PApplet::g_papplet->key : 0; } };
+#ifndef CPPMODE_NO_PROXY_key
+inline _P_key key;
+#endif
+struct _P_keyCode { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->keyCode : 0; } };
+#ifndef CPPMODE_NO_PROXY_keyCode
+inline _P_keyCode keyCode;
+#endif
+struct _P_mouseButton { operator int() const { return PApplet::g_papplet ? (int)PApplet::g_papplet->mouseButton : 0; } };
+#ifndef CPPMODE_NO_PROXY_mouseButton
+inline _P_mouseButton mouseButton;
+#endif
+struct _P_mousePressed { operator bool() const { return PApplet::g_papplet ? (bool)PApplet::g_papplet->_mousePressed : false; } };
+#ifndef CPPMODE_NO_PROXY_mousePressed
+inline _P_mousePressed mousePressed;
+#endif
+struct _P_keyPressed { operator bool() const { return PApplet::g_papplet ? (bool)PApplet::g_papplet->_keyPressed : false; } };
+#ifndef CPPMODE_NO_PROXY_keyPressed
+inline _P_keyPressed keyPressed;
+#endif
+struct _P_mouseDX { operator float() const { return PApplet::g_papplet ? (float)PApplet::g_papplet->mouseDX : 0.f; } };
+#ifndef CPPMODE_NO_PROXY_mouseDX
+inline _P_mouseDX mouseDX;
+#endif
+struct _P_mouseDY { operator float() const { return PApplet::g_papplet ? (float)PApplet::g_papplet->mouseDY : 0.f; } };
+#ifndef CPPMODE_NO_PROXY_mouseDY
+inline _P_mouseDY mouseDY;
+#endif

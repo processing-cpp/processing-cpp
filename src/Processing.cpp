@@ -1,3 +1,4 @@
+#include <mutex>
 #if __has_include("stb_truetype.h")
 #  define PROCESSING_HAS_STB_TRUETYPE 1
 #  define STB_TRUETYPE_IMPLEMENTATION
@@ -14,6 +15,108 @@
 #endif
 
 #include "Processing.h"
+#include <unordered_map>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#ifdef PROCESSING_USE_FREETYPE
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include <cstring>
+#include <cstddef>
+#endif
+#ifndef CPPMODE_BACKEND_LIBPROCESSING
+// OpenGL build: the libprocessing image branches are only reached when a
+// backend exists, which never happens here. These stand-ins let them compile.
+static inline uint64_t processing_image_load(const char*) { return 0; }
+static inline void processing_image(uint64_t, uint64_t, float, float) {}
+static inline void processing_image_scaled(uint64_t, uint64_t, float, float, float, float) {}
+// BEGIN CPPMODE LIBPROCESSING STUBS (generated)
+#ifndef CPPMODE_BACKEND_LIBPROCESSING
+template<class... A> inline uint64_t processing_background_image(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_begin_contour(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_begin_shape(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_camera(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_check_error(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_clear(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_clip(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_cursor(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_depth_test(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_ellipse_mode(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_end_contour(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_end_shape(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_filter_create(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_geometry_color(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_geometry_create(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_geometry_destroy(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_geometry_normal(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_geometry_uv(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_geometry_vertex(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_get_matrix(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_graphics_apply_filter(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_graphics_readback(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_graphics_set(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_graphics_set_msaa(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_graphics_update_region(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_image_set_sampler(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_light_destroy(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_light_set_ambient(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material_create_custom(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material_create_pbr(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material_set_alpha_mode(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material_set_double_sided(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material_set_float4(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material_set_texture(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_material_set_unlit(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_mode_3d(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_model(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_model_x(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_model_y(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_model_z(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_no_clip(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_no_cursor(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_ortho(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_perspective(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_pop_matrix(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_pop_style(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_push_matrix(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_push_style(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_rect_mode(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_reset_material(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_screen_x(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_screen_y(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_screen_z(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_set_blend_mode(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_set_fill(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_set_stroke_cap(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_set_stroke_join(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_shader_create(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_shader_set_float(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_shader_set_int(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_shader_set_vec2(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_shader_set_vec3(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_shader_set_vec4(A&&...) { return 0; }
+template<class... A> inline uint64_t processing_vertex(A&&...) { return 0; }
+#endif
+// END CPPMODE LIBPROCESSING STUBS
+#endif
+#include <map>
+#include <array>
+// defined with the light helpers inside namespace Processing
+namespace Processing { static void lpLitFillChanged(float, float, float, float);
+                       static void lpSetEye(float, float, float); }
+using Processing::lpLitFillChanged;
+using Processing::lpSetEye;
+// cppmode-texsmooth: smooth()/noSmooth() under libprocessing, applied once the backend exists
+static int g_lpMsaaWanted = -1;
+static int lpMsaaSamples(bool on, int level) { return (!on || level <= 1) ? 0 : 4; }  // 4x is the count every GPU supports
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+#  define GLFW_EXPOSE_NATIVE_X11
+#  define GLFW_EXPOSE_NATIVE_WAYLAND
+#  include <GLFW/glfw3native.h>
+#  include "LibProcessingBackend.h"
+#endif
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable: 4365 4245 4100 4189)
@@ -81,6 +184,33 @@
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
+// cppmode-savefile: .tif/.tiff are written as real (uncompressed RGB) TIFF files. They used
+// to be TGA data under a .tif name, which nothing could open. Other extensions keep TGA.
+static int cppmodeWriteTgaOrTiff(const char* fn, const ::std::string& ext, int w, int h, const unsigned char* rgb) {
+    if (ext != ".tif" && ext != "tiff" && ext != ".tiff") return stbi_write_tga(fn, w, h, 3, rgb);
+    FILE* f = fopen(fn, "wb"); if (!f) return 0;
+    auto u16 = [&](unsigned v) { unsigned char b[2] = {(unsigned char)v, (unsigned char)(v >> 8)}; fwrite(b, 1, 2, f); };
+    auto u32 = [&](unsigned v) { unsigned char b[4] = {(unsigned char)v, (unsigned char)(v >> 8), (unsigned char)(v >> 16), (unsigned char)(v >> 24)}; fwrite(b, 1, 4, f); };
+    unsigned dataSize = (unsigned)w * (unsigned)h * 3, nEntries = 10;
+    unsigned ifd = 8 + dataSize, bpsOff = ifd + 2 + nEntries * 12 + 4;
+    fwrite("II", 1, 2, f); u16(42); u32(ifd);
+    fwrite(rgb, 1, dataSize, f);
+    u16(nEntries);
+    auto entry = [&](unsigned tag, unsigned type, unsigned count, unsigned value) { u16(tag); u16(type); u32(count); u32(value); };
+    entry(256, 4, 1, (unsigned)w);            // width
+    entry(257, 4, 1, (unsigned)h);            // height
+    entry(258, 3, 3, bpsOff);                 // bits per sample -> 8,8,8 below
+    entry(259, 3, 1, 1);                      // no compression
+    entry(262, 3, 1, 2);                      // RGB
+    entry(273, 4, 1, 8);                      // strip offset
+    entry(277, 3, 1, 3);                      // samples per pixel
+    entry(278, 4, 1, (unsigned)h);            // rows per strip
+    entry(279, 4, 1, dataSize);               // strip byte count
+    entry(284, 3, 1, 1);                      // chunky
+    u32(0);
+    u16(8); u16(8); u16(8);
+    fclose(f); return 1;
+}
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
@@ -446,11 +576,38 @@ color PApplet::lerpColor(color c1, color c2, float t) {
 // INTERNAL HELPERS
 // =============================================================================
 
+// cppmode-glblend: the blend mode blendMode() set. applyFill/applyStroke and the image and
+// text paths used to reset GL to normal alpha blending on every draw, so ADD, MULTIPLY
+// and the rest never showed
+static int g_glBlendMode = BLEND;
+static void glApplyBlend(int mode) {
+    glEnable(GL_BLEND);
+    // Reset equation first (SUBTRACT changes it)
+    glBlendEquation(GL_FUNC_ADD);
+    switch (mode) {
+        case BLEND:    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); break;
+        case ADD:      glBlendFunc(GL_SRC_ALPHA, GL_ONE);                break;
+        case MULTIPLY: glBlendFunc(GL_DST_COLOR, GL_ZERO);               break;
+        case SCREEN:   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR);      break;
+        case DARKEST:  glBlendFunc(GL_ONE, GL_ONE); glBlendEquation(GL_MIN); break;
+        case LIGHTEST: glBlendFunc(GL_ONE, GL_ONE); glBlendEquation(GL_MAX); break;
+        case DIFFERENCE:
+            glBlendEquation(GL_FUNC_SUBTRACT);
+            glBlendFunc(GL_ONE, GL_ONE);
+            break;
+        case SUBTRACT:
+            glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            break;
+        case REPLACE:  glBlendFunc(GL_ONE, GL_ZERO);                     break;
+        default:       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); break;
+    }
+}
 void PApplet::applyFill() {
     glColor4f(fillR, fillG, fillB, fillA);
     // Always enable blend -- shapes with alpha need it, opaque shapes don't hurt
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glApplyBlend(g_glBlendMode);
 }
 
 // Temporarily suspend lighting so stroke lines/points render with their exact
@@ -462,7 +619,7 @@ void PApplet::applyStroke() {
     }
     glColor4f(strokeR, strokeG, strokeB, strokeA);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glApplyBlend(g_glBlendMode);
 }
 
 // Restore lighting after a stroke draw call.
@@ -476,6 +633,8 @@ void PApplet::restoreLighting() {
     }
 }
 void PApplet::initPersistFBO(){
+    if(_backend) return;
+    if(_backend) return; // backend owns framebuffer
     if(persistFBO){glDeleteFramebuffers(1,&persistFBO);glDeleteTextures(1,&persistTex);persistFBO=0;}
     glGenFramebuffers(1,&persistFBO);
     glGenTextures(1,&persistTex);
@@ -491,6 +650,8 @@ void PApplet::initPersistFBO(){
 
 // Copy current back buffer into persist FBO
 void PApplet::saveToPersist(){
+    if(_backend) return;
+    if(_backend) return;
     if(!persistFBO) initPersistFBO();
     // Blit back buffer -> persist FBO
     glBindFramebuffer(GL_READ_FRAMEBUFFER,0);
@@ -501,6 +662,8 @@ void PApplet::saveToPersist(){
 
 // Restore persist FBO into back buffer
 void PApplet::restoreFromPersist(){
+    if(_backend) return;
+    if(_backend) return;
     if(!persistFBO) return;
     glBindFramebuffer(GL_READ_FRAMEBUFFER,persistFBO);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER,0);
@@ -580,7 +743,7 @@ void PApplet::resolveRect(float& x,float& y,float& w,float& h){
     else if(currentRectMode==CORNERS){w=w-x;h=h-y;}
 }
 void PApplet::resolveEllipse(float& cx,float& cy,float& rx,float& ry){
-    if(currentEllipseMode==CORNER){cx+=rx;cy+=ry;}
+    if(currentEllipseMode==CORNER){rx*=0.5f;ry*=0.5f;cx+=rx;cy+=ry;}  /* cppmode-glshapes2: w/h are the full size, like Java */
     else if(currentEllipseMode==CORNERS){float ex=rx,ey=ry;rx=(ex-cx)*0.5f;ry=(ey-cy)*0.5f;cx=(cx+ex)*0.5f;cy=(cy+ey)*0.5f;}
     else if(currentEllipseMode==CENTER){rx*=0.5f;ry*=0.5f;}
 }
@@ -591,6 +754,7 @@ void PApplet::setFillFromColor(color c) {
     fillB = (v       & 0xFF) / 255.f;
     fillA = (v >> 24 & 0xFF) / 255.f;
     doFill = true;
+    if (_backend) { _backend->fill(fillR, fillG, fillB, fillA); lpLitFillChanged(fillR, fillG, fillB, fillA); }
 }
 void PApplet::setStrokeFromColor(color c) {
     unsigned int v = c.value;
@@ -599,6 +763,7 @@ void PApplet::setStrokeFromColor(color c) {
     strokeB = (v       & 0xFF) / 255.f;
     strokeA = (v >> 24 & 0xFF) / 255.f;
     doStroke = true;
+    if (_backend) _backend->stroke(strokeR, strokeG, strokeB, strokeA);
 }
 
 // =============================================================================
@@ -609,7 +774,18 @@ void PApplet::size(int w,int h){
     winWidth=w;winHeight=h;
     logicalW=w;logicalH=h;  // remember what the sketch requested
     pixelWidth=w;pixelHeight=h;
-    if(gWindow){
+    if(gWindow && _backend){
+        // libprocessing path: resize the window and tell the surface
+        { int cw = 0, ch = 0; glfwGetWindowSize(gWindow, &cw, &ch);
+          static bool warned = false;
+          if (!warned && (cw != w || ch != h)) { warned = true;
+            fprintf(stderr, "[CppMode] size(%d, %d) was called after the window was created at %d x %d. "
+                            "With the libprocessing renderer the picture may look stretched. "
+                            "Put size() on its own line in setup(), or in settings().\n", w, h, cw, ch); } }
+        glfwSetWindowSize(gWindow,w,h);
+        _backend->set_size((uint32_t)w,(uint32_t)h);
+    }
+    if(gWindow && !_backend){
         glfwSetWindowSize(gWindow,w,h);
         // Poll until the framebuffer is actually the requested size.
         // glfwSetWindowSize is async; without this the window stays 100x100
@@ -652,6 +828,11 @@ void PApplet::size(int w,int h){
 }
 void PApplet::size(int w,int h,int renderer){
     defaultP3D=(renderer==P3D);
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    // P3D gets libprocessing's 3D camera (Java's P3D defaults: 60 degree fov,
+    // camera in front of the sketch). Without it, the 2D camera clips anything behind z = 0.
+    if (defaultP3D && _backend) processing_mode_3d(_backend->graphics_id());
+#endif
     size(w,h);
     // For P3D mode: set up depth test and apply default camera/perspective
     // immediately so setup() draws with the correct projection.
@@ -667,25 +848,29 @@ void PApplet::size(int w,int h,int renderer){
         applyDefaultCamera();
     }
 }
+// cppmode-select: fullScreen() sizes the sketch to the display first (width/height used to stay
+// 640x480), and a call in settings() is applied once the window exists (it stayed windowed).
+static bool g_fullScreenPending = false;
+static void cppmodeGoFullScreen(GLFWwindow* w) {
+    if (!w) { g_fullScreenPending = true; return; }
+    GLFWmonitor* m = glfwGetPrimaryMonitor(); if (!m) return;
+    const GLFWvidmode* v = glfwGetVideoMode(m); if (!v) return;
+    glfwSetWindowMonitor(w, m, 0, 0, v->width, v->height, v->refreshRate);
+}
 void PApplet::fullScreen() {
-    if (!gWindow) {
-        winWidth = displayWidth;
-        winHeight = displayHeight;
-    } else {
-        GLFWmonitor* m = glfwGetPrimaryMonitor();
-        const GLFWvidmode* v = glfwGetVideoMode(m);
-        glfwSetWindowMonitor(gWindow, m, 0, 0, v->width, v->height, v->refreshRate);
-    }
+    if (displayWidth > 0 && displayHeight > 0) size(displayWidth, displayHeight);
+    cppmodeGoFullScreen(gWindow);
 }
 void PApplet::fullScreen(int mode) {
-    size(displayWidth, displayHeight, mode);
-    fullScreen();
+    if (displayWidth > 0 && displayHeight > 0) size(displayWidth, displayHeight, mode);
+    cppmodeGoFullScreen(gWindow);
 }
 void PApplet::frameRate(int fps){ targetFrameTime = 1.0/fps; }
 void PApplet::noLoop(){looping=false;}
 void PApplet::loop()  {looping=true;}
 void PApplet::redraw(){redrawOnce=true;}
-void PApplet::exit_sketch(){if(gWindow)glfwSetWindowShouldClose(gWindow,GLFW_TRUE);}
+static bool g_exitRequested = false;  // cppmode-strapi: exit() may come before the loop starts
+void PApplet::exit_sketch(){g_exitRequested=true;if(gWindow)glfwSetWindowShouldClose(gWindow,GLFW_TRUE);}
 void PApplet::windowTitle(const ::std::string& t){if(gWindow)glfwSetWindowTitle(gWindow,t.c_str());}
 void PApplet::windowMove(int x,int y){if(gWindow)glfwSetWindowPos(gWindow,x,y);}
 void PApplet::windowResize(int w,int h){size(w,h);}
@@ -761,6 +946,10 @@ void PApplet::smooth(int level) {
     // smooth() always has, regardless of which level was requested.
     smoothing = true;
     smoothLevel = level;
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    g_lpMsaaWanted = lpMsaaSamples(true, level);  // cppmode-texsmooth
+    if(_backend){ processing_graphics_set_msaa(_backend->graphics_id(), (uint32_t)g_lpMsaaWanted); return; }
+#endif
 #ifndef __EMSCRIPTEN__
     glEnable(GL_LINE_SMOOTH);glHint(GL_LINE_SMOOTH_HINT,GL_NICEST);
     // GL_POINT_SMOOTH removed in OpenGL 3.2+ core -- skip to avoid crash
@@ -769,12 +958,22 @@ void PApplet::smooth(int level) {
 }
 void PApplet::noSmooth(){
     smoothing=false;
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    g_lpMsaaWanted = 0;
+    if(_backend){ processing_graphics_set_msaa(_backend->graphics_id(), 0); return; }
+#endif
 #ifndef __EMSCRIPTEN__
     glDisable(GL_LINE_SMOOTH);glDisable(GL_POLYGON_SMOOTH);
     glDisable(GL_POINT_SMOOTH);glDisable(GL_MULTISAMPLE);
 #endif
 }
 void PApplet::hint(int which){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){
+        if (which == ENABLE_DEPTH_TEST)  processing_depth_test(_backend->graphics_id(), true);
+        if (which == DISABLE_DEPTH_TEST) processing_depth_test(_backend->graphics_id(), false);
+        return; }
+#endif
     switch(which){
         case ENABLE_DEPTH_TEST:  glEnable(GL_DEPTH_TEST);  break;
         case DISABLE_DEPTH_TEST: glDisable(GL_DEPTH_TEST); break;
@@ -783,9 +982,19 @@ void PApplet::hint(int which){
         default: break;
     }
 }
-void PApplet::cursor()       {if(gWindow)glfwSetInputMode(gWindow,GLFW_CURSOR,GLFW_CURSOR_NORMAL);}
-void PApplet::cursor(int type){if(!gWindow)return;GLFWcursor* c=glfwCreateStandardCursor(type);if(c)glfwSetCursor(gWindow,c);}
-void PApplet::noCursor()     {if(gWindow)glfwSetInputMode(gWindow,GLFW_CURSOR,GLFW_CURSOR_HIDDEN);}
+void PApplet::cursor()       {if(_backend){processing_cursor(_backend->surface_id(),0);return;}if(gWindow)glfwSetInputMode(gWindow,GLFW_CURSOR,GLFW_CURSOR_NORMAL);}
+void PApplet::cursor(int type){
+    if(_backend){  // cppmode-cursor-frustum: GLFW cursor shapes -> libprocessing's PROCESSING_CURSOR_* (0..5)
+        uint8_t k = 0;  // arrow
+        if      (type == GLFW_CROSSHAIR_CURSOR) k = 1;
+        else if (type == GLFW_HAND_CURSOR)      k = 2;
+        else if (type == GLFW_HRESIZE_CURSOR)   k = 3;  // MOVE
+        else if (type == GLFW_IBEAM_CURSOR)     k = 4;  // TEXT
+        else if (type == GLFW_VRESIZE_CURSOR)   k = 5;  // WAIT
+        processing_cursor(_backend->surface_id(), k); return;
+    }
+    if(!gWindow)return;GLFWcursor* c=glfwCreateStandardCursor(type);if(c)glfwSetCursor(gWindow,c);}
+void PApplet::noCursor()     {if(_backend){processing_no_cursor(_backend->surface_id());return;}/* cppmode-cursor-frustum */if(gWindow)glfwSetInputMode(gWindow,GLFW_CURSOR,GLFW_CURSOR_HIDDEN);}
 // captureMouse(): locks cursor to window and provides unlimited delta movement.
 // Use releaseMouse() or press ESC to free it.
 void PApplet::captureMouse() {if(gWindow){glfwSetInputMode(gWindow,GLFW_CURSOR,GLFW_CURSOR_DISABLED);
@@ -821,28 +1030,31 @@ void PApplet::restoreStyle(const Style& s) {
     colorMaxH = s.cmH; colorMaxS = s.cmS; colorMaxB = s.cmB; colorMaxA = s.cmA;
 }
 void PApplet::pushStyle() {
+    if(_backend) processing_push_style(_backend->graphics_id());
     Style s;
     captureStyle(s);
     styleStack.push_back(s);
 }
 
 void PApplet::popStyle() {
+    if(_backend) processing_pop_style(_backend->graphics_id());
     if (!styleStack.empty()) {
         restoreStyle(styleStack.back());
         styleStack.pop_back();
     }
 }
 
-void PApplet::push()       { glPushMatrix(); pushStyle(); }
-void PApplet::pop()        { glPopMatrix();  popStyle();  }
-void PApplet::pushMatrix() { glPushMatrix(); }
-void PApplet::popMatrix()  { glPopMatrix();  }
+void PApplet::push()       { if(_backend){_backend->push_matrix();pushStyle();return;} glPushMatrix(); pushStyle(); }
+void PApplet::pop()        { if(_backend){_backend->pop_matrix();popStyle();return;} glPopMatrix();  popStyle(); }
+void PApplet::pushMatrix() { if(_backend){_backend->push_matrix();return;} glPushMatrix(); }
+void PApplet::popMatrix()  { if(_backend){_backend->pop_matrix();return;} glPopMatrix(); }
 
 // =============================================================================
 // BACKGROUND / CLEAR
 // =============================================================================
 void PApplet::setBg(float r,float g,float b,float a){
     bgR=r;bgG=g;bgB=b;bgA=a;
+    if (_backend) { _backend->background(r,g,b,a); return; }
     glClearColor(r,g,b,a);
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 }
@@ -863,8 +1075,17 @@ void PApplet::background(color c) {
     unsigned int v = c.value;
     setBg((v>>16&0xFF)/255.f, (v>>8&0xFF)/255.f, (v&0xFF)/255.f, (v>>24&0xFF)/255.f);
 }
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+static bool lpEnsureImage(ProcessingBackend* be, PImage* img);   // cppmode-api3
+#endif
 void PApplet::background(const PImage& img) {
     _backgroundCalledThisFrame = true;
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-api3
+        PImage* p = const_cast<PImage*>(&img);
+        if (lpEnsureImage(_backend, p)) processing_background_image(_backend->graphics_id(), p->lp_image_id);
+        return; }
+#endif
     // Draw image as full-canvas background
     if (img.width == 0 || img.height == 0) return;
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -877,7 +1098,8 @@ void PApplet::background(const PImage& img) {
     glMatrixMode(GL_MODELVIEW); glPopMatrix();
     if (defaultP3D) glEnable(GL_DEPTH_TEST);
 }
-void PApplet::clear(){glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);}
+void PApplet::clear(){
+    if(_backend){processing_clear(_backend->graphics_id());return;}glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);}
 
 // =============================================================================
 // FILL / STROKE
@@ -896,22 +1118,24 @@ void PApplet::fill(color c, float a) {
     fillA = ::std::min(255.f, ::std::max(0.f, a)) / 255.f;
     doFill = true;
 }
-void PApplet::noFill()                              {doFill=false;}
+void PApplet::noFill()                              {doFill=false; if(_backend) _backend->no_fill();}
 void PApplet::stroke(float gray,float a)            {setStrokeFromColor(makeColor(gray,a));}
 void PApplet::stroke(float gray)                    {setStrokeFromColor(makeColor(gray,colorMaxA));}
 void PApplet::stroke(float r,float g,float b,float a){setStrokeFromColor(makeColor(r,g,b,a));}
 void PApplet::stroke(float r,float g,float b)          {setStrokeFromColor(makeColor(r,g,b,colorMaxA));}
 void PApplet::stroke(color c)                       {setStrokeFromColor(c);}
-void PApplet::noStroke()                            {doStroke=false;}
-void PApplet::strokeWeight(float w)                 {strokeW=w;}
+void PApplet::noStroke()                            {doStroke=false; if(_backend) _backend->no_stroke();}
+void PApplet::strokeWeight(float w)                 {strokeW=w; if(_backend) _backend->stroke_weight(w);}
 void PApplet::strokeCap(int mode) {
-    // ROUND cap: enable line smoothing; SQUARE/PROJECT: disable
     currentStrokeCap = mode;
+    if(_backend){processing_set_stroke_cap(_backend->graphics_id(),(uint8_t)mode);return;}
+    // ROUND cap: enable line smoothing; SQUARE/PROJECT: disable
     if(mode==ROUND) { glEnable(GL_LINE_SMOOTH); glHint(GL_LINE_SMOOTH_HINT,GL_NICEST); }
     else { glDisable(GL_LINE_SMOOTH); }
 }
 void PApplet::strokeJoin(int mode) {
-    currentStrokeJoin = mode; // stored, used in custom line rendering
+    currentStrokeJoin = mode;
+    if(_backend) processing_set_stroke_join(_backend->graphics_id(),(uint8_t)mode);
 }
 
 // =============================================================================
@@ -922,8 +1146,10 @@ void PApplet::fill(const PColor& c)      { fill(c.r, c.g, c.b, c.a); }
 void PApplet::stroke(const PColor& c)    { stroke(c.r, c.g, c.b, c.a); }
 void PApplet::background(const PColor& c){ background(c.r, c.g, c.b, c.a); }
 void PApplet::tint(const PColor& c)      { tint(c.r, c.g, c.b, c.a); }
-void PApplet::rectMode(int m)    {currentRectMode=m;}
-void PApplet::ellipseMode(int m) {currentEllipseMode=m;}
+void PApplet::rectMode(int m)    {currentRectMode=m;
+    if(_backend) processing_rect_mode(_backend->graphics_id(),(uint8_t)m);}
+void PApplet::ellipseMode(int m) {currentEllipseMode=m;
+    if(_backend) processing_ellipse_mode(_backend->graphics_id(),(uint8_t)m);}
 
 // =============================================================================
 // 2D PRIMITIVES
@@ -932,6 +1158,7 @@ void PApplet::ellipseMode(int m) {currentEllipseMode=m;}
 static void flushPoints(){} // no-op, points drawn immediately now
 
 void PApplet::point(float x, float y) {
+    if (_backend) { _backend->point(x, y); return; }
     if (!doStroke) return;
     applyStroke();
     if (!smoothing && strokeW <= 1.0f) {
@@ -944,6 +1171,7 @@ void PApplet::point(float x, float y) {
     restoreLighting();
 }
 void PApplet::point(float x, float y, float z) {
+    if (_backend) { _backend->point(x, y, z); return; }  // cppmode-api3
     if (!doStroke) return;
     applyStroke();
     glPointSize(strokeW);
@@ -951,6 +1179,7 @@ void PApplet::point(float x, float y, float z) {
     restoreLighting();
 }
 void PApplet::line(float x1, float y1, float x2, float y2) {
+    if (_backend) { _backend->line(x1, y1, x2, y2); return; }
     {
         GLint mvDepth=0, projDepth=0;
         glGetIntegerv(GL_MODELVIEW_STACK_DEPTH, &mvDepth);
@@ -983,6 +1212,10 @@ void PApplet::line(float x1, float y1, float x2, float y2) {
     float r = w*0.5f;
     float px2 = -uy*r, py2 = ux*r; // perpendicular
     int segs = ::std::max(16, (int)(r*4.0f));
+    // cppmode-glshapes2: strokeCap. Only ROUND gets round ends; PROJECT extends the line by
+    // half the weight with square ends; SQUARE stops at the end points
+    bool roundCap = currentStrokeCap == ROUND;
+    if (currentStrokeCap == PROJECT) { x1 -= ux*r; y1 -= uy*r; x2 += ux*r; y2 += uy*r; }
     // Use stencil to draw all geometry, then fill once -- prevents double-blend
     glEnable(GL_STENCIL_TEST);
     glClearStencil(0);
@@ -1003,7 +1236,7 @@ void PApplet::line(float x1, float y1, float x2, float y2) {
     glEnd();
 #endif
     // Draw end caps into stencil
-    for(int ep=0;ep<2;ep++){
+    for(int ep=0;ep<(roundCap?2:0);ep++){
         float cx2=ep?x2:x1, cy2=ep?y2:y1;
         glBegin(GL_TRIANGLE_FAN);
         glVertex2f(cx2,cy2);
@@ -1018,7 +1251,7 @@ void PApplet::line(float x1, float y1, float x2, float y2) {
     glStencilFunc(GL_EQUAL, 1, 0xFF);
     glStencilOp(GL_KEEP,GL_KEEP,GL_KEEP);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glApplyBlend(g_glBlendMode);
     // Fill bounding box with stroke color
     float minx=::std::min(x1,x2)-r, maxx=::std::max(x1,x2)+r;
     float miny=::std::min(y1,y2)-r, maxy=::std::max(y1,y2)+r;
@@ -1037,6 +1270,7 @@ void PApplet::line(float x1, float y1, float x2, float y2) {
     restoreLighting();
 }
 void PApplet::line(float x1, float y1, float z1, float x2, float y2, float z2) {
+    if (_backend) { _backend->line(x1, y1, z1, x2, y2, z2); return; }  // cppmode-api3
     if (!doStroke) return;
     applyStroke();
     glLineWidth(strokeW);
@@ -1044,22 +1278,25 @@ void PApplet::line(float x1, float y1, float z1, float x2, float y2, float z2) {
     restoreLighting();
 }
 void PApplet::ellipse(float cx, float cy, float w, float h) {
+    if (_backend) { _backend->ellipse(cx, cy, w, h); return; }
     float rx = w, ry = h;
     resolveEllipse(cx, cy, rx, ry);
     drawEllipseGeom(cx, cy, rx, ry);
 }
 
-void PApplet::circle(float cx, float cy, float diameter) {
+void PApplet::circle(float cx, float cy, float diameter) { if (_backend) { _backend->circle(cx, cy, diameter); return; }
     ellipse(cx, cy, diameter, diameter);
 }
 
 void PApplet::arc(float cx, float cy, float w, float h, float startAngle, float endAngle) {
+    if (_backend) { _backend->arc(cx, cy, w, h, startAngle, endAngle, 0); return; }
     float rx = w, ry = h;
     resolveEllipse(cx, cy, rx, ry);
     drawEllipseGeom(cx, cy, rx, ry, startAngle, endAngle);
 }
 
 void PApplet::arc(float cx, float cy, float w, float h, float startAngle, float endAngle, int mode) {
+    if (_backend) { _backend->arc(cx, cy, w, h, startAngle, endAngle, (uint8_t)mode); return; }
     float rx = w, ry = h;
     resolveEllipse(cx, cy, rx, ry);
     int steps = 64;
@@ -1069,8 +1306,8 @@ void PApplet::arc(float cx, float cy, float w, float h, float startAngle, float 
         applyFill();
         glBegin(GL_TRIANGLE_FAN);
         if (mode == PIE) glVertex2f(cx, cy); // PIE: fan from center
-        else             glVertex2f(cx + rx * ::std::cos(startAngle) * 0.5f,
-                                   cy + ry * ::std::sin(startAngle) * 0.5f); // CHORD/OPEN: fan from first point
+        else             glVertex2f(cx + rx * ::std::cos(startAngle),
+                                   cy + ry * ::std::sin(startAngle)); // CHORD/OPEN: fan from first point (cppmode-glshapes2: was at half radius)
         for (int i = 0; i <= steps; i++) {
             float a = startAngle + i * da;
             glVertex2f(cx + rx * ::std::cos(a), cy + ry * ::std::sin(a));
@@ -1096,6 +1333,7 @@ void PApplet::arc(float cx, float cy, float w, float h, float startAngle, float 
 }
 void PApplet::rect(float x, float y, float w, float h) {
     resolveRect(x, y, w, h);
+    if (_backend) { _backend->rect(x, y, w, h); return; }
 
     if (doFill) {
         applyFill();
@@ -1157,6 +1395,7 @@ void PApplet::rect(float x, float y, float w, float h) {
 }
 void PApplet::rect(float x, float y, float w, float h, float r) {
     resolveRect(x, y, w, h);
+    if (_backend) { float rr = min(r, min(::std::fabs(w), ::std::fabs(h)) * 0.5f); _backend->rect(x, y, w, h, rr, rr, rr, rr); return; }  // cppmode-api3
 
     // Clamp radius so it never exceeds half the shortest side
     r = min(r, min(w, h) * 0.5f);
@@ -1198,6 +1437,7 @@ void PApplet::rect(float x, float y, float w, float h, float r) {
     }
 }
 void PApplet::rect(float x,float y,float w,float h,float tl,float tr,float br,float bl){
+    if (_backend) { resolveRect(x, y, w, h); _backend->rect(x, y, w, h, tl, tr, br, bl); return; }  // cppmode-api3
     if(!doFill && !doStroke) return;
     float x2=x+w, y2=y+h;
     beginShape();
@@ -1212,8 +1452,9 @@ void PApplet::rect(float x,float y,float w,float h,float tl,float tr,float br,fl
     endShape(CLOSE);
 }
 
-void PApplet::square(float x,float y,float s){rect(x,y,s,s);}
+void PApplet::square(float x,float y,float s){ if (_backend) { _backend->square(x, y, s); return; }rect(x,y,s,s);}
 void PApplet::triangle(float x1, float y1, float x2, float y2, float x3, float y3) {
+    if (_backend) { _backend->triangle(x1,y1,x2,y2,x3,y3); return; }
     if (doFill) {
         applyFill();
         glBegin(GL_TRIANGLES);
@@ -1234,7 +1475,9 @@ void PApplet::triangle(float x1, float y1, float x2, float y2, float x3, float y
     }
 }
 void PApplet::quad(float x1, float y1, float x2, float y2,
-          float x3, float y3, float x4, float y4) {
+          float x3, float y3, float x4, float y4){
+    if (_backend) { _backend->quad(x1,y1,x2,y2,x3,y3,x4,y4); return; }
+
     if (doFill) {
         applyFill();
 #ifdef __EMSCRIPTEN__
@@ -1268,10 +1511,11 @@ void PApplet::quad(float x1, float y1, float x2, float y2,
 // 3D PRIMITIVES
 // =============================================================================
 
-void PApplet::rotateX(float a){glRotatef(a*180.0f/PI,1,0,0);}
-void PApplet::rotateY(float a){glRotatef(a*180.0f/PI,0,1,0);}
-void PApplet::rotateZ(float a){glRotatef(a*180.0f/PI,0,0,1);}
-void PApplet::sphereDetail(int r){sphereRes=r;}
+void PApplet::rotateX(float a){if(_backend){_backend->rotate_x(a);return;}glRotatef(a*180.0f/PI,1,0,0);}
+void PApplet::rotateY(float a){if(_backend){_backend->rotate_y(a);return;}glRotatef(a*180.0f/PI,0,1,0);}
+void PApplet::rotateZ(float a){if(_backend){_backend->rotate_z(a);return;}glRotatef(a*180.0f/PI,0,0,1);}
+void PApplet::sphereDetail(int r){sphereRes=r; if(_backend) _backend->sphereDetail(r, r);}  /* cppmode-spheredetail */
+void PApplet::sphereDetail(int u, int v){sphereRes=u; if(_backend) _backend->sphereDetail(u, v);}
 
 // =============================================================================
 // PHONG SHADING SHADER
@@ -1334,10 +1578,11 @@ void main(){
         col += gl_Color.rgb * gl_LightSource[i].diffuse.rgb * d * spotAtten;
         vec3 H = normalize(L + V);
         float nh = max(dot(N, H), 0.0);
-        float sh = pow(nh, gl_FrontMaterial.shininess + 1.0);
+        float sh = pow(nh, max(gl_FrontMaterial.shininess, 1.0));  // like Java's shininess()
         col += gl_FrontMaterial.specular.rgb * gl_LightSource[i].specular.rgb * sh * spotAtten;
     }
-    gl_FragColor = vec4(col, gl_Color.a);
+    col += gl_FrontMaterial.emission.rgb;  // emissive(): glows whether lit or not
+    gl_FragColor = vec4(clamp(col, 0.0, 1.0), gl_Color.a);
 }
 )FRAG";
     GLuint v=compileShader(GL_VERTEX_SHADER,vs);
@@ -1351,8 +1596,9 @@ void main(){
     glDeleteShader(v); glDeleteShader(f);
 }
 
-void PApplet::box(float s){box(s,s,s);}
+void PApplet::box(float s){if(_backend){_backend->box(s,s,s);return;}box(s,s,s);}
 void PApplet::box(float bw,float bh,float bd){
+    if(_backend){_backend->box(bw,bh,bd);return;}
     {
         GLint curFbo=0; glGetIntegerv(GL_FRAMEBUFFER_BINDING,&curFbo);
         GLboolean depthOn = glIsEnabled(GL_DEPTH_TEST);
@@ -1414,6 +1660,7 @@ void PApplet::box(float bw,float bh,float bd){
     }
 }
 void PApplet::sphere(float r){
+    if(_backend){_backend->sphere(r);return;}
     int stacks=sphereRes, slices=sphereRes;
     if(doFill){
         // Use Phong (per-pixel) shading when lighting is on for smooth highlights
@@ -1496,46 +1743,282 @@ void PApplet::sphere(float r){
 // VERTEX / SHAPES
 // =============================================================================
 
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+// beginShape under libprocessing: points are recorded first. endShape draws
+// them as a 2D shape, or as a mesh when any vertex has a z (the 2D shape path
+// has no z). Meshes live until the next frame starts.
+// cppmode-curves: bezier/quadratic/curve vertices are sampled here, so bezierDetail(),
+// curveDetail() and curveTightness() apply in libprocessing too
+static float g_lpLast[3] = {0, 0, 0};
+static bool  g_lpHasLast = false;
+static ::std::vector<::std::array<float,3>> g_lpCurve;
+struct LpShapeVert { float x, y, z, r, g, b, a; float u = 0, v = 0; float nx = 0, ny = 0, nz = 0; bool hasN = false; };
+// cppmode-api3: normal() for beginShape vertices; without one, a triangle gets its flat normal
+static float g_lpNormal[3] = {0, 0, 1};
+static bool  g_lpHasNormal = false;
+static void lpPushV(LpShapeVert q);  // cppmode-texsmooth: u, v for texture()
+static ::std::vector<LpShapeVert> g_lpShape;
+static bool g_lpShapeOpen = false;
+static int  g_lpShapeKind = -1;
+static ::std::vector<uint64_t> g_lpFrameGeos;
+static void lpPushV(LpShapeVert q) {
+    if (g_lpHasNormal) { q.nx = g_lpNormal[0]; q.ny = g_lpNormal[1]; q.nz = g_lpNormal[2]; q.hasN = true; }
+    g_lpShape.push_back(q);
+}
+// cppmode-texsmooth: texture() state for the shape being built
+static uint64_t g_lpTexImg = 0;
+static float    g_lpTexW = 1, g_lpTexH = 1;
+static bool     g_lpTexAlpha = false;
+static bool lpEnsureImage(ProcessingBackend* be, PImage* img);
+static constexpr uint8_t LP_TOPO_TRIANGLES = 3;
+static void lpFrameGeosFree() {
+    for (uint64_t g : g_lpFrameGeos) processing_geometry_destroy(g);
+    g_lpFrameGeos.clear();
+}
+static void lpShapeOpen(uint64_t gid) {
+    if (g_lpShapeOpen) return;
+    g_lpShapeOpen = true;
+    processing_begin_shape(gid, (uint8_t)(g_lpShapeKind == -1 ? 0 : g_lpShapeKind));
+    for (const auto& v : g_lpShape) processing_vertex(gid, v.x, v.y);
+}
+static float lpSrgbToLinear(float v) {
+    v = v < 0 ? 0 : (v > 1 ? 1 : v);
+    return v <= 0.04045f ? v / 12.92f : ::std::pow((v + 0.055f) / 1.055f, 2.4f);
+}
+static void lpShapeDraw3D(uint64_t gid, int kind, float cr, float cg, float cb, float ca) {
+    const auto& v = g_lpShape;
+    int n = (int)v.size();
+    ::std::vector<::std::array<int, 3>> t;
+    if (kind == TRIANGLES)           for (int i = 0; i + 2 < n; i += 3) t.push_back({i, i + 1, i + 2});
+    else if (kind == TRIANGLE_STRIP) for (int i = 2; i < n; i++) {
+        if (i % 2) t.push_back({i - 1, i - 2, i}); else t.push_back({i - 2, i - 1, i}); }
+    else if (kind == QUADS)          for (int i = 0; i + 3 < n; i += 4) {
+        t.push_back({i, i + 1, i + 2}); t.push_back({i, i + 2, i + 3}); }
+    else if (kind == QUAD_STRIP)     for (int i = 0; i + 3 < n; i += 2) {
+        t.push_back({i, i + 1, i + 3}); t.push_back({i, i + 3, i + 2}); }
+    else                             for (int i = 2; i < n; i++) t.push_back({0, i - 1, i});  // polygon, fan
+    if (t.empty()) return;
+    // libprocessing paints a mesh with the current fill, not its vertex colors,
+    // so draw one mesh per fill color and set that fill first.
+    ::std::vector<int> order(t.size());
+    for (size_t i = 0; i < t.size(); i++) order[i] = (int)i;
+    auto colKey = [&](int ti) { const auto& q = v[t[ti][0]]; return ::std::make_tuple(q.r, q.g, q.b, q.a); };
+    ::std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return colKey(a) < colKey(b); });
+    size_t i = 0;
+    while (i < order.size()) {
+        auto key = colKey(order[i]);
+        uint64_t geo = processing_geometry_create(LP_TOPO_TRIANGLES);
+        if (!geo) return;
+        for (; i < order.size() && colKey(order[i]) == key; i++) {
+            const auto& tr = t[order[i]];
+            const auto &A = v[tr[0]], &B = v[tr[1]], &C = v[tr[2]];
+            // flat normal per triangle, like P3D's automatic normals
+            float ux = B.x - A.x, uy = B.y - A.y, uz = B.z - A.z;
+            float wx = C.x - A.x, wy = C.y - A.y, wz = C.z - A.z;
+            float nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+            float len = ::std::sqrt(nx * nx + ny * ny + nz * nz);
+            if (len > 0) { nx /= len; ny /= len; nz /= len; } else { nx = 0; ny = 0; nz = 1; }
+            for (int j : tr) {
+                const auto& q = v[j];
+                if (q.hasN) processing_geometry_normal(geo, q.nx, q.ny, q.nz); else processing_geometry_normal(geo, nx, ny, nz);
+                processing_geometry_color(geo, lpSrgbToLinear(q.r), lpSrgbToLinear(q.g), lpSrgbToLinear(q.b), q.a);
+                processing_geometry_vertex(geo, q.x, q.y, q.z);
+            }
+        }
+        processing_set_fill(gid, lp_rgba(::std::get<0>(key), ::std::get<1>(key), ::std::get<2>(key), ::std::get<3>(key)));
+        lpLitFillChanged(::std::get<0>(key), ::std::get<1>(key), ::std::get<2>(key), ::std::get<3>(key));
+        processing_model(gid, geo);
+        g_lpFrameGeos.push_back(geo);
+    }
+    // back to the sketch's current fill
+    processing_set_fill(gid, lp_rgba(cr, cg, cb, ca));
+    lpLitFillChanged(cr, cg, cb, ca);
+}
+// cppmode-texsmooth: a textured shape is one mesh with UVs, drawn with an unlit
+// material holding the image; tint() colors it like Java (fill is ignored)
+static void lpShapeDrawTex(uint64_t gid, int kind, bool doTint, float tr, float tg, float tb, float ta) {
+    const auto& v = g_lpShape;
+    int n = (int)v.size();
+    ::std::vector<::std::array<int, 3>> t;
+    if (kind == TRIANGLES)           for (int i = 0; i + 2 < n; i += 3) t.push_back({i, i + 1, i + 2});
+    else if (kind == TRIANGLE_STRIP) for (int i = 2; i < n; i++) {
+        if (i % 2) t.push_back({i - 1, i - 2, i}); else t.push_back({i - 2, i - 1, i}); }
+    else if (kind == QUADS)          for (int i = 0; i + 3 < n; i += 4) {
+        t.push_back({i, i + 1, i + 2}); t.push_back({i, i + 2, i + 3}); }
+    else if (kind == QUAD_STRIP)     for (int i = 0; i + 3 < n; i += 2) {
+        t.push_back({i, i + 1, i + 3}); t.push_back({i, i + 3, i + 2}); }
+    else                             for (int i = 2; i < n; i++) t.push_back({0, i - 1, i});
+    if (t.empty()) return;
+    if (!doTint) { tr = tg = tb = ta = 1.0f; }
+    static ::std::map<::std::tuple<uint64_t, float, float, float, float, bool>, uint64_t> mats;
+    auto key = ::std::make_tuple(g_lpTexImg, tr, tg, tb, ta, g_lpTexAlpha);
+    uint64_t mat;
+    auto it = mats.find(key);
+    if (it != mats.end()) mat = it->second;
+    else {
+        mat = processing_material_create_pbr();
+        if (!mat) return;
+        processing_material_set_unlit(mat, true);
+        processing_material_set_double_sided(mat, true);
+        processing_material_set_texture(mat, "texture", g_lpTexImg);
+        processing_material_set_float4(mat, "base_color", tr, tg, tb, ta);
+        if (g_lpTexAlpha || ta < 1.0f) processing_material_set_alpha_mode(mat, 2, 0.5f);
+        mats[key] = mat;
+    }
+    uint64_t geo = processing_geometry_create(LP_TOPO_TRIANGLES);
+    if (!geo) return;
+    for (const auto& tri : t) {
+        const auto &A = v[tri[0]], &B = v[tri[1]], &C = v[tri[2]];
+        float ux = B.x - A.x, uy = B.y - A.y, uz = B.z - A.z;
+        float wx = C.x - A.x, wy = C.y - A.y, wz = C.z - A.z;
+        float nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+        float len = ::std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (len > 0) { nx /= len; ny /= len; nz /= len; } else { nx = 0; ny = 0; nz = 1; }
+        for (int j : tri) {
+            const auto& q = v[j];
+            if (q.hasN) processing_geometry_normal(geo, q.nx, q.ny, q.nz); else processing_geometry_normal(geo, nx, ny, nz);
+            processing_geometry_color(geo, 1.0f, 1.0f, 1.0f, 1.0f);
+            processing_geometry_uv(geo, q.u, q.v);
+            processing_geometry_vertex(geo, q.x, q.y, q.z);
+        }
+    }
+    processing_material(gid, mat);
+    processing_model(gid, geo);
+    processing_reset_material(gid);
+    g_lpFrameGeos.push_back(geo);
+}
+#else
+static void lpFrameGeosFree() {}
+static void lpShapeOpen(uint64_t) {}
+#endif
+
+// cppmode-glshapefill: holes from beginContour()/endContour() for the OpenGL fill
+static ::std::vector<::std::vector<::std::array<float,3>>> g_glContours;
+// cppmode-glcurves: curve points of the shape being built, for both renderers
+static ::std::vector<::std::array<float,3>> g_curvePts;
+// cppmode-curves: Java's curve basis (Catmull-Rom with curveTightness). Each new vertex past
+// the fourth draws the segment between the middle two, curveDetail steps long.
+static void lpCurveVertex(PApplet* p, float x, float y, float z) {
+    g_curvePts.push_back({x, y, z});
+    size_t n = g_curvePts.size();
+    if (n < 4) return;
+    const auto &P0 = g_curvePts[n-4], &P1 = g_curvePts[n-3], &P2 = g_curvePts[n-2], &P3 = g_curvePts[n-1];
+    float s = p->curveTightnessVal;
+    float m[4][4] = { {(s-1)/2, (s+3)/2, (-3-s)/2, (1-s)/2},
+                      {(1-s),   (-5-s)/2, (s+2),   (s-1)/2},
+                      {(s-1)/2, 0,       (1-s)/2,  0},
+                      {0,       1,       0,        0} };
+    bool flat = P0[2] == 0 && P1[2] == 0 && P2[2] == 0 && P3[2] == 0;
+    int d = p->curveDetailVal > 0 ? p->curveDetailVal : 20;
+    for (int i = (n == 4 ? 0 : 1); i <= d; i++) {
+        float t = i / (float)d, T[4] = {t*t*t, t*t, t, 1}, w[4];
+        for (int k = 0; k < 4; k++) w[k] = T[0]*m[0][k] + T[1]*m[1][k] + T[2]*m[2][k] + T[3]*m[3][k];
+        float q[3];
+        for (int a = 0; a < 3; a++) q[a] = w[0]*P0[a] + w[1]*P1[a] + w[2]*P2[a] + w[3]*P3[a];
+        if (flat) p->vertex(q[0], q[1]); else p->vertex(q[0], q[1], q[2]);
+    }
+}
 void PApplet::beginShape(int kind){
+    g_curvePts.clear();  // cppmode-glcurves
+    g_glContours.clear();
     shapeKind = kind;
     inShape   = true;
     shape3D   = false;
     shapeVerts.clear();
-    shapeVerts3D.clear();
+    shapeVerts3D.clear(); shapeCols.clear();
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){ g_lpShapeKind = kind; g_lpShapeOpen = false; g_lpShape.clear(); g_lpTexImg = 0; g_lpHasNormal = false; g_lpHasLast = false; g_lpCurve.clear(); return; }
+#endif
     // Vertices are always collected in shapeVerts / shapeVerts3D.
     // endShape() draws fill and/or stroke from those collections.
     // shape3D is set when 3-component vertices are used (vertex(x,y,z)).
 }
 void PApplet::vertex(float x, float y) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    g_lpLast[0] = x; g_lpLast[1] = y; g_lpLast[2] = 0; g_lpHasLast = true;  // cppmode-curves
+#endif
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){
+        if (g_lpShapeOpen) processing_vertex(_backend->graphics_id(), x, y);
+        else lpPushV({x, y, 0.0f, fillR, fillG, fillB, fillA});
+        return; }
+#endif
     if (inContour) { contourVerts.push_back({x,y}); return; }
     if (!inShape)  return;
     shapeVerts.push_back({x, y});
-    shapeVerts3D.push_back({x, y, 0.0f});
+    shapeCols.push_back({fillR, fillG, fillB, fillA}); shapeVerts3D.push_back({x, y, 0.0f});
 }
 void PApplet::vertex(float x, float y, float z) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    g_lpLast[0] = x; g_lpLast[1] = y; g_lpLast[2] = z; g_lpHasLast = true;  // cppmode-curves
+#endif
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){
+        if (z != 0.0f) shape3D = true;
+        if (g_lpShapeOpen) processing_vertex(_backend->graphics_id(), x, y);
+        else lpPushV({x, y, z, fillR, fillG, fillB, fillA});
+        return; }
+#endif
     if (inContour) { contourVerts.push_back({x,y}); return; }
     if (!inShape)  return;
     shapeVerts.push_back({x, y});
-    shapeVerts3D.push_back({x, y, z});
+    shapeCols.push_back({fillR, fillG, fillB, fillA}); shapeVerts3D.push_back({x, y, z});
     if (z != 0.0f) shape3D = true;
 }
 void PApplet::vertex(float x, float y, float u, float v) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){ vertex(x, y, 0.0f, u, v); return; }
+#endif
     if (!inShape) return;
     shapeVerts.push_back({x, y});
-    shapeVerts3D.push_back({x, y, 0.0f});
+    shapeCols.push_back({fillR, fillG, fillB, fillA}); shapeVerts3D.push_back({x, y, 0.0f});
     // UV stored for future texture mapping support
 }
 void PApplet::vertex(float x, float y, float z, float u, float v) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){
+        if (!inShape) return;
+        if (z != 0.0f) shape3D = true;
+        if (g_lpShapeOpen) { processing_vertex(_backend->graphics_id(), x, y); return; }
+        LpShapeVert q{x, y, z, fillR, fillG, fillB, fillA};
+        if (textureModeVal == IMAGE) { u /= g_lpTexW; v /= g_lpTexH; }
+        q.u = u; q.v = v;
+        lpPushV(q);
+        return; }
+#endif
     if (!inShape) return;
     shapeVerts.push_back({x, y});
-    shapeVerts3D.push_back({x, y, z});
+    shapeCols.push_back({fillR, fillG, fillB, fillA}); shapeVerts3D.push_back({x, y, z});
     if (z != 0.0f) shape3D = true;
 }
-void PApplet::beginContour(){inContour=true;contourVerts.clear();}
-void PApplet::endContour()  {inContour=false;}
+void PApplet::beginContour(){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){ lpShapeOpen(_backend->graphics_id()); processing_begin_contour(_backend->graphics_id()); return; }  // cppmode-api4
+#endif
+    inContour=true;contourVerts.clear();}
+void PApplet::endContour()  {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){ processing_end_contour(_backend->graphics_id()); return; }
+#endif
+    if (inContour && contourVerts.size() >= 3) {  // cppmode-glshapefill: keep the hole for endShape()
+        ::std::vector<::std::array<float,3>> ring;
+        for (auto& p : contourVerts) ring.push_back({p.first, p.second, 0.0f});
+        g_glContours.push_back(ring);
+    }
+    inContour=false; contourVerts.clear();}
 
 void PApplet::endShape(int mode){
     if(!inShape){return;}
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){
+        uint64_t gid = _backend->graphics_id();
+        if (g_lpTexImg && !g_lpShapeOpen && shapeKind != POINTS && shapeKind != LINES)
+            lpShapeDrawTex(gid, shapeKind, doTint, tintR, tintG, tintB, tintA);
+        else if (g_lpShapeOpen) processing_end_shape(gid, mode == CLOSE);
+        else if (shape3D && shapeKind != POINTS && shapeKind != LINES) { if (doFill) lpShapeDraw3D(gid, shapeKind, fillR, fillG, fillB, fillA); }
+        else { lpShapeOpen(gid); processing_end_shape(gid, mode == CLOSE); }
+        g_lpShapeOpen = false; g_lpShape.clear(); inShape = false; return; }
+#endif
     bool cl=(mode==CLOSE);
     int  n3 = (int)shapeVerts3D.size();
 
@@ -1563,9 +2046,16 @@ void PApplet::endShape(int mode){
             glEnable(GL_POLYGON_OFFSET_FILL);
             glPolygonOffset(1.0f, 1.0f);
             applyFill();
+            // cppmode-vertexfill: each vertex keeps the fill it was given, like Java
+            bool perVertex = shapeCols.size() == shapeVerts3D.size();
             glBegin(gm);
-            for(auto& v : shapeVerts3D) glVertex3f(v[0], v[1], v[2]);
+            for (size_t i = 0; i < shapeVerts3D.size(); i++) {
+                if (perVertex) { const auto& k = shapeCols[i]; glColor4f(k[0], k[1], k[2], k[3]); }
+                const auto& v = shapeVerts3D[i];
+                glVertex3f(v[0], v[1], v[2]);
+            }
             glEnd();
+            if (perVertex) applyFill();
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
         // POINTS and LINES use stroke color drawn directly
@@ -1576,7 +2066,7 @@ void PApplet::endShape(int mode){
             for(auto& v : shapeVerts3D) glVertex3f(v[0], v[1], v[2]);
             glEnd();
             restoreLighting();
-            inShape=false; shape3D=false; shapeVerts.clear(); shapeVerts3D.clear();
+            inShape=false; shape3D=false; shapeVerts.clear(); shapeVerts3D.clear(); shapeCols.clear();
             return;
         }
         if(shapeKind == LINES){
@@ -1585,7 +2075,7 @@ void PApplet::endShape(int mode){
             for(auto& v : shapeVerts3D) glVertex3f(v[0], v[1], v[2]);
             glEnd();
             restoreLighting();
-            inShape=false; shape3D=false; shapeVerts.clear(); shapeVerts3D.clear();
+            inShape=false; shape3D=false; shapeVerts.clear(); shapeVerts3D.clear(); shapeCols.clear();
             return;
         }
         // Draw stroke outlines -- shapeVerts was collected in vertex()
@@ -1655,7 +2145,7 @@ void PApplet::endShape(int mode){
             }
         }
         restoreLighting();
-        inShape=false; shape3D=false; shapeVerts.clear(); shapeVerts3D.clear();
+        inShape=false; shape3D=false; shapeVerts.clear(); shapeVerts3D.clear(); shapeCols.clear();
         return;
     }
     if(shapeVerts.empty()){inShape=false;return;}
@@ -1673,36 +2163,28 @@ void PApplet::endShape(int mode){
             glStencilFunc(GL_ALWAYS, 0, ~0);
             glStencilOp(GL_KEEP, GL_KEEP, GL_INVERT); // toggle stencil bit
             glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // don't write color
+            glDepthMask(GL_FALSE);  // cppmode-glshapefill: or step 2, at the same depth, fails the depth test
             glBegin(GL_TRIANGLE_FAN);
             for(auto& v : shapeVerts3D) glVertex3f(v[0], v[1], v[2]);
             glEnd();
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-
-            // Step 2: Draw fill color only where stencil != 0
-            glStencilFunc(GL_NOTEQUAL, 0, ~0);
-            glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-            applyFill();
-            // Draw a bounding quad covering the shape
-            float minx=shapeVerts3D[0][0], maxx=minx;
-            float miny=shapeVerts3D[0][1], maxy=miny;
-            float minz=shapeVerts3D[0][2], maxz=minz;
-            for(auto& v:shapeVerts3D){
-                minx=::std::min(minx,v[0]); maxx=::std::max(maxx,v[0]);
-                miny=::std::min(miny,v[1]); maxy=::std::max(maxy,v[1]);
-                minz=::std::min(minz,v[2]); maxz=::std::max(maxz,v[2]);
+            for (auto& ring : g_glContours) {  // cppmode-glshapefill: holes flip the stencil back
+                glBegin(GL_TRIANGLE_FAN);
+                for (auto& v : ring) glVertex3f(v[0], v[1], v[2]);
+                glEnd();
             }
-            float mz=(minz+maxz)*0.5f;
-#ifdef __EMSCRIPTEN__
-            glBegin(GL_TRIANGLES);
-            glVertex3f(minx,miny,mz); glVertex3f(maxx,miny,mz); glVertex3f(maxx,maxy,mz);
-            glVertex3f(minx,miny,mz); glVertex3f(maxx,maxy,mz); glVertex3f(minx,maxy,mz);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDepthMask(GL_TRUE);
+
+            // Step 2: draw the fill where the stencil is set.
+            // cppmode-glshapefill: cover with the shape's own triangles, not a box at the
+            // middle depth: a box misses parts of a rotated or non-flat shape and gets the
+            // depth wrong. GL_ZERO clears each pixel as it is drawn, so overlaps draw once.
+            glStencilFunc(GL_NOTEQUAL, 0, ~0);
+            glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
+            applyFill();
+            glBegin(GL_TRIANGLE_FAN);
+            for(auto& v : shapeVerts3D) glVertex3f(v[0], v[1], v[2]);
             glEnd();
-#else
-            glBegin(GL_QUADS);
-            glVertex3f(minx,miny,mz); glVertex3f(maxx,miny,mz);
-            glVertex3f(maxx,maxy,mz); glVertex3f(minx,maxy,mz);
-            glEnd();
-#endif
             glDisable(GL_STENCIL_TEST);
         }
         if(doStroke){
@@ -1711,46 +2193,95 @@ void PApplet::endShape(int mode){
             // Use 3D coords so transforms (rotateX/Y) are respected
             for(auto& v : shapeVerts3D) glVertex3f(v[0], v[1], v[2]);
             glEnd();
+            for (auto& ring : g_glContours) {  // cppmode-glshapefill
+                glBegin(GL_LINE_LOOP);
+                for (auto& v : ring) glVertex3f(v[0], v[1], v[2]);
+                glEnd();
+            }
             restoreLighting();
         }
     }
-    inShape=false; shapeVerts.clear(); shapeVerts3D.clear();
+    inShape=false; shapeVerts.clear(); shapeVerts3D.clear(); shapeCols.clear(); g_glContours.clear();
 }
 
-void PApplet::bezierVertex(float cx1,float cy1,float cx2,float cy2,float x,float y){
+void PApplet::bezierVertex(float cx1,float cy1,float cx2,float cy2,float x,float y) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){  // cppmode-curves: sample with bezierDetail, like Java
+        if (!g_lpHasLast) { vertex(x, y); return; }
+        float x0 = g_lpLast[0], y0 = g_lpLast[1]; int sg = bezierDetailVal > 0 ? bezierDetailVal : 20;
+        for (int i = 1; i <= sg; i++) { float t = i / (float)sg, u = 1 - t;
+            vertex(u*u*u*x0 + 3*u*u*t*cx1 + 3*u*t*t*cx2 + t*t*t*x, u*u*u*y0 + 3*u*u*t*cy1 + 3*u*t*t*cy2 + t*t*t*y); }
+        return; }
+#endif
     if(!inShape||shapeVerts.empty())return;
     auto[x0,y0]=shapeVerts.back();const int sg=bezierDetailVal;
     for(int i=1;i<=sg;i++){float t=i/(float)sg,u=1-t;
         float bx=u*u*u*x0+3*u*u*t*cx1+3*u*t*t*cx2+t*t*t*x, by=u*u*u*y0+3*u*u*t*cy1+3*u*t*t*cy2+t*t*t*y;
-        shapeVerts.push_back({bx,by}); shapeVerts3D.push_back({bx,by,0.0f});}
+        shapeVerts.push_back({bx,by}); shapeCols.push_back({fillR, fillG, fillB, fillA}); shapeVerts3D.push_back({bx,by,0.0f});}
 }
 void PApplet::quadraticVertex(float cx,float cy,float x,float y){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){  // cppmode-curves
+        if (!g_lpHasLast) { vertex(x, y); return; }
+        float x0 = g_lpLast[0], y0 = g_lpLast[1]; int sg = bezierDetailVal > 0 ? bezierDetailVal : 20;
+        for (int i = 1; i <= sg; i++) { float t = i / (float)sg, u = 1 - t;
+            vertex(u*u*x0 + 2*u*t*cx + t*t*x, u*u*y0 + 2*u*t*cy + t*t*y); }
+        return; }
+#endif
     if(!inShape||shapeVerts.empty())return;
     auto[x0,y0]=shapeVerts.back();const int sg=bezierDetailVal;
-    for(int i=1;i<=sg;i++){float t=i/(float)sg,u=1-t;float qx=u*u*x0+2*u*t*cx+t*t*x,qy=u*u*y0+2*u*t*cy+t*t*y;shapeVerts.push_back({qx,qy});shapeVerts3D.push_back({qx,qy,0.0f});}
+    for(int i=1;i<=sg;i++){float t=i/(float)sg,u=1-t;float qx=u*u*x0+2*u*t*cx+t*t*x,qy=u*u*y0+2*u*t*cy+t*t*y;shapeVerts.push_back({qx,qy});shapeCols.push_back({fillR, fillG, fillB, fillA}); shapeVerts3D.push_back({qx,qy,0.0f});}
 }
-void PApplet::curveVertex(float x,float y){if(inShape){shapeVerts.push_back({x,y});shapeVerts3D.push_back({x,y,0.0f});}}
-void PApplet::curveVertex(float x,float y,float z){if(inShape){shapeVerts.push_back({x,y});shapeVerts3D.push_back({x,y,z});}}
+void PApplet::curveVertex(float x,float y){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){ lpCurveVertex(this, x, y, 0.0f); return; }  // cppmode-curves
+#endif
+   if(inShape) lpCurveVertex(this, x, y, 0.0f); }  // cppmode-glcurves: OpenGL drew the raw control points as a polygon
+void PApplet::curveVertex(float x,float y,float z){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend && inShape){ lpCurveVertex(this, x, y, z); return; }  // cppmode-curves
+#endif
+   if(inShape) lpCurveVertex(this, x, y, z); }  // cppmode-glcurves
 void PApplet::bezierVertex(float cx1,float cy1,float cz1,float cx2,float cy2,float cz2,float x,float y,float z){
     if(!inShape) return;
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){  // cppmode-api4: sample the curve into the mesh path's vertices
+        if (cz1 == 0.0f && cz2 == 0.0f && z == 0.0f && !shape3D) { bezierVertex(cx1, cy1, cx2, cy2, x, y); return; }
+        if (g_lpShapeOpen || g_lpShape.empty()) { vertex(x, y, z); return; }
+        LpShapeVert a = g_lpShape.back();
+        int steps = bezierDetailVal > 0 ? bezierDetailVal : 20;
+        shape3D = true;
+        for (int i = 1; i <= steps; i++) {
+            float t = (float)i / steps, mt = 1 - t;
+            float b0 = mt*mt*mt, b1 = 3*mt*mt*t, b2 = 3*mt*t*t, b3 = t*t*t;
+            lpPushV({b0*a.x + b1*cx1 + b2*cx2 + b3*x, b0*a.y + b1*cy1 + b2*cy2 + b3*y, b0*a.z + b1*cz1 + b2*cz2 + b3*z,
+                     fillR, fillG, fillB, fillA});
+        }
+        return; }
+#endif
+    if(shapeVerts3D.empty()){ vertex(x, y, z); return; }  // cppmode-glcurves
     float ax=shapeVerts3D.back()[0],ay=shapeVerts3D.back()[1],az=shapeVerts3D.back()[2];
-    int steps=20;
+    int steps=bezierDetailVal>0?bezierDetailVal:20;
+    shape3D=true;
     for(int i=1;i<=steps;i++){
         float t=(float)i/steps,t2=t*t,t3=t2*t,mt=1-t,mt2=mt*mt,mt3=mt2*mt;
         float px=mt3*ax+3*mt2*t*cx1+3*mt*t2*cx2+t3*x;
         float py=mt3*ay+3*mt2*t*cy1+3*mt*t2*cy2+t3*y;
         float pz=mt3*az+3*mt2*t*cz1+3*mt*t2*cz2+t3*z;
-        shapeVerts.push_back({px,py}); shapeVerts3D.push_back({px,py,pz});
+        shapeVerts.push_back({px,py}); shapeCols.push_back({fillR, fillG, fillB, fillA}); shapeVerts3D.push_back({px,py,pz});
     }
 }
 
 void PApplet::bezier(float x1,float y1,float cx1,float cy1,float cx2,float cy2,float x2,float y2){
+    { beginShape(); vertex(x1, y1); bezierVertex(cx1, cy1, cx2, cy2, x2, y2); endShape(); return; }  // cppmode-glcurves: both renderers, fills like Java
+
     if(!doStroke)return;applyStroke();glLineWidth(strokeW);glBegin(GL_LINE_STRIP);
     for(int i=0;i<=bezierDetailVal;i++){float t=i/(float)bezierDetailVal,u=1-t;
         glVertex2f(u*u*u*x1+3*u*u*t*cx1+3*u*t*t*cx2+t*t*t*x2,u*u*u*y1+3*u*u*t*cy1+3*u*t*t*cy2+t*t*t*y2);}
     glEnd();
 }
 void PApplet::curve(float x0,float y0,float x1,float y1,float x2,float y2,float x3,float y3){
+    { beginShape(); curveVertex(x0, y0); curveVertex(x1, y1); curveVertex(x2, y2); curveVertex(x3, y3); endShape(); return; }  // cppmode-glcurves
     if(!doStroke)return;applyStroke();glLineWidth(strokeW);glBegin(GL_LINE_STRIP);
     float s=curveTightnessVal;
     for(int i=0;i<=curveDetailVal;i++){
@@ -1773,19 +2304,84 @@ void PApplet::bezierDetail(int d)    {bezierDetailVal=d;}
 // MATRIX
 // =============================================================================
 
-void PApplet::resetMatrix(){glLoadIdentity();}
+void PApplet::resetMatrix(){ if (_backend) { _backend->reset_matrix(); return; }
+    if (defaultP3D) { applyStandardModelview(); return; }  // P3D: back to the camera view like Java, not raw identity
+    glLoadIdentity();}
 void PApplet::applyMatrix(float n00,float n01,float n02,float n03,float n10,float n11,float n12,float n13,float n20,float n21,float n22,float n23,float n30,float n31,float n32,float n33){
+    if(_backend){
+        float m[16]={n00,n01,n02,n03,n10,n11,n12,n13,n20,n21,n22,n23,n30,n31,n32,n33};
+        _backend->apply_matrix(m);return;}  // cppmode-lightxform
+    if(_backend){
+        float m[16]={n00,n01,n02,n03,n10,n11,n12,n13,n20,n21,n22,n23,n30,n31,n32,n33};
+        _backend->apply_matrix(m);return;}  // cppmode-lightxform
     float m[]={n00,n10,n20,n30,n01,n11,n21,n31,n02,n12,n22,n32,n03,n13,n23,n33};
     glMultMatrixf(m);
 }
-void PApplet::translate(float x,float y)        {glTranslatef(x,y,0);}
-void PApplet::translate(float x,float y,float z){glTranslatef(x,y,z);}
-void PApplet::scale(float s)                    {glScalef(s,s,1);}
-void PApplet::scale(float sx,float sy)          {glScalef(sx,sy,1);}
-void PApplet::rotate(float a)                   {glRotatef(a*180.0f/PI,0,0,1);}
-void PApplet::shearX(float a)                   {float m[]={1,0,0,0,::std::tan(a),1,0,0,0,0,1,0,0,0,0,1};glMultMatrixf(m);}
-void PApplet::shearY(float a)                   {float m[]={1,::std::tan(a),0,0,0,1,0,0,0,0,1,0,0,0,0,1};glMultMatrixf(m);}
-void PApplet::printMatrix(){float m[16];glGetFloatv(GL_MODELVIEW_MATRIX,m);for(int i=0;i<4;i++){for(int j=0;j<4;j++)::std::cout<<m[j*4+i]<<" ";::std::cout<<"\n";}}
+void PApplet::translate(float x,float y)        {if(_backend){_backend->translate(x,y,0);return;}glTranslatef(x,y,0);}
+void PApplet::translate(float x,float y,float z){
+    if(_backend){_backend->translate(x,y,z);return;}glTranslatef(x,y,z);}
+void PApplet::scale(float s)                    {if(_backend){_backend->scale(s,s,1);return;}glScalef(s,s,1);}
+void PApplet::scale(float sx,float sy)          {if(_backend){_backend->scale(sx,sy,1);return;}glScalef(sx,sy,1);}
+void PApplet::rotate(float a)                   {if(_backend){_backend->rotate_z(a);return;}glRotatef(a*180.0f/PI,0,0,1);}
+void PApplet::shearX(float a)                   {if(_backend){_backend->shear_x(a);return;}float m[]={1,0,0,0,::std::tan(a),1,0,0,0,0,1,0,0,0,0,1};glMultMatrixf(m);}
+void PApplet::shearY(float a)                   {if(_backend){_backend->shear_y(a);return;}float m[]={1,::std::tan(a),0,0,0,1,0,0,0,0,1,0,0,0,0,1};glMultMatrixf(m);}
+
+// cppmode-camextras: remember the camera and projection given to libprocessing so printCamera()
+// and printProjection() can show them (the fork has no getter for those)
+static float g_lpCam[9];  static bool g_lpCamSet = false;
+static int   g_lpProjKind = 0;  // 0 = Java default, 1 = perspective, 2 = ortho
+static float g_lpProj[6];
+static void cppmodeLpCamera(uint64_t g, float ex, float ey, float ez, float cx, float cy, float cz, float ux, float uy, float uz) {
+    float v[9] = {ex, ey, ez, cx, cy, cz, ux, uy, uz}; for (int i = 0; i < 9; i++) g_lpCam[i] = v[i]; g_lpCamSet = true;
+    processing_camera(g, ex, ey, ez, cx, cy, cz, ux, uy, uz);
+}
+static void cppmodeLpPerspective(uint64_t g, float fov, float aspect, float n, float f) {
+    g_lpProjKind = 1; g_lpProj[0] = fov; g_lpProj[1] = aspect; g_lpProj[2] = n; g_lpProj[3] = f;
+    processing_perspective(g, fov, aspect, n, f);
+}
+static void cppmodeLpOrtho(uint64_t g, float l, float r, float b, float t, float n, float f) {
+    g_lpProjKind = 2; float v[6] = {l, r, b, t, n, f}; for (int i = 0; i < 6; i++) g_lpProj[i] = v[i];
+    processing_ortho(g, l, r, b, t, n, f);
+}
+static void cppmodePrint4x4(const char* title, const float m[16]) {  // m is column-major
+    if (title) ::std::cout << title << "\n";
+    for (int i = 0; i < 4; i++) { for (int j = 0; j < 4; j++) ::std::cout << m[j * 4 + i] << " "; ::std::cout << "\n"; }
+}
+// cppmode-camfix2: the camera as Processing sees it: camera() values, or Java's default one
+static void cppmodeCamBasis(PApplet* a, float e[3], float x[3], float y[3], float z[3]) {
+    float cz = (a->height * 0.5f) / ::std::tan(PI / 6.0f);
+    float c[3] = {a->width * 0.5f, a->height * 0.5f, 0}, u[3] = {0, 1, 0};
+    e[0] = a->width * 0.5f; e[1] = a->height * 0.5f; e[2] = cz;
+    if (g_lpCamSet) for (int i = 0; i < 3; i++) { e[i] = g_lpCam[i]; c[i] = g_lpCam[3 + i]; u[i] = g_lpCam[6 + i]; }
+    for (int i = 0; i < 3; i++) z[i] = e[i] - c[i];
+    float zl = ::std::sqrt(z[0]*z[0] + z[1]*z[1] + z[2]*z[2]); if (zl > 0) for (int i = 0; i < 3; i++) z[i] /= zl;
+    x[0] = u[1]*z[2] - u[2]*z[1]; x[1] = u[2]*z[0] - u[0]*z[2]; x[2] = u[0]*z[1] - u[1]*z[0];
+    float xl = ::std::sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]); if (xl > 0) for (int i = 0; i < 3; i++) x[i] /= xl;
+    y[0] = z[1]*x[2] - z[2]*x[1]; y[1] = z[2]*x[0] - z[0]*x[2]; y[2] = z[0]*x[1] - z[1]*x[0];
+}
+static void cppmodeCamMatrix(PApplet* a, float m[16]) {  // column-major view matrix
+    float e[3], x[3], y[3], z[3]; cppmodeCamBasis(a, e, x, y, z);
+    float v[16] = { x[0], y[0], z[0], 0,  x[1], y[1], z[1], 0,  x[2], y[2], z[2], 0,
+                    -(x[0]*e[0] + x[1]*e[1] + x[2]*e[2]), -(y[0]*e[0] + y[1]*e[1] + y[2]*e[2]), -(z[0]*e[0] + z[1]*e[1] + z[2]*e[2]), 1 };
+    for (int i = 0; i < 16; i++) m[i] = v[i];
+}
+// OpenGL modelX/Y/Z: the modelview gives camera-space coords; Java's modelX is world space
+static float cppmodeGlModel(PApplet* a, const float mv[16], float px, float py, float pz, int axis) {
+    float ec[3] = { mv[0]*px + mv[4]*py + mv[8]*pz + mv[12], mv[1]*px + mv[5]*py + mv[9]*pz + mv[13], mv[2]*px + mv[6]*py + mv[10]*pz + mv[14] };
+    if (!a->defaultP3D) return ec[axis];
+    float e[3], x[3], y[3], z[3]; cppmodeCamBasis(a, e, x, y, z);
+    return e[axis] + x[axis] * ec[0] + y[axis] * ec[1] + z[axis] * ec[2];
+}
+void PApplet::printMatrix(){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-camfix2: camera * model, like Java's printMatrix in P3D
+        Matrix mm = processing_get_matrix(_backend->graphics_id());
+        float c[16], r[16]; cppmodeCamMatrix(this, c);
+        for (int col = 0; col < 4; col++) for (int row = 0; row < 4; row++) {
+            float s = 0; for (int k = 0; k < 4; k++) s += c[k * 4 + row] * mm.m[col * 4 + k]; r[col * 4 + row] = s; }
+        cppmodePrint4x4(nullptr, defaultP3D ? r : mm.m); return; }
+#endif
+   float m[16];glGetFloatv(GL_MODELVIEW_MATRIX,m);for(int i=0;i<4;i++){for(int j=0;j<4;j++)::std::cout<<m[j*4+i]<<" ";::std::cout<<"\n";}}
 
 static void projectPoint(float x,float y,float z,float& ox,float& oy,float& oz){
     float mv[16],proj[16];int vp[4];
@@ -1803,12 +2399,36 @@ static void projectPoint(float x,float y,float z,float& ox,float& oy,float& oz){
     oy=vp[1]+(1-py)*0.5f*vp[3];
     oz=(pz+1)*0.5f;
 }
-float PApplet::screenX(float x,float y,float z){float ox,oy,oz;projectPoint(x,y,z,ox,oy,oz);return ox;}
-float PApplet::screenY(float x,float y,float z){float ox,oy,oz;projectPoint(x,y,z,ox,oy,oz);return oy;}
-float PApplet::screenZ(float x,float y,float z){float ox,oy,oz;projectPoint(x,y,z,ox,oy,oz);return oz;}
-float PApplet::modelX(float x,float y,float z) {float mv[16];glGetFloatv(GL_MODELVIEW_MATRIX,mv);return mv[0]*x+mv[4]*y+mv[8]*z+mv[12];}
-float PApplet::modelY(float x,float y,float z) {float mv[16];glGetFloatv(GL_MODELVIEW_MATRIX,mv);return mv[1]*x+mv[5]*y+mv[9]*z+mv[13];}
-float PApplet::modelZ(float x,float y,float z) {float mv[16];glGetFloatv(GL_MODELVIEW_MATRIX,mv);return mv[2]*x+mv[6]*y+mv[10]*z+mv[14];}
+float PApplet::screenX(float x,float y,float z){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) return processing_screen_x(_backend->graphics_id(), x, y, z);  // cppmode-camextras
+#endif
+   float ox,oy,oz;projectPoint(x,y,z,ox,oy,oz);return ox;}
+float PApplet::screenY(float x,float y,float z){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) return processing_screen_y(_backend->graphics_id(), x, y, z);
+#endif
+   float ox,oy,oz;projectPoint(x,y,z,ox,oy,oz);return oy;}
+float PApplet::screenZ(float x,float y,float z){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) return processing_screen_z(_backend->graphics_id(), x, y, z);  // cppmode-camextras
+#endif
+   float ox,oy,oz;projectPoint(x,y,z,ox,oy,oz);return oz;}
+float PApplet::modelX(float x,float y,float z) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) return processing_model_x(_backend->graphics_id(), x, y, z);  // cppmode-camextras
+#endif
+   float mv[16];glGetFloatv(GL_MODELVIEW_MATRIX,mv);return cppmodeGlModel(this, mv, x, y, z, 0);}  // cppmode-camfix2
+float PApplet::modelY(float x,float y,float z) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) return processing_model_y(_backend->graphics_id(), x, y, z);  // cppmode-camextras
+#endif
+   float mv[16];glGetFloatv(GL_MODELVIEW_MATRIX,mv);return cppmodeGlModel(this, mv, x, y, z, 1);}  // cppmode-camfix2
+float PApplet::modelZ(float x,float y,float z) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) return processing_model_z(_backend->graphics_id(), x, y, z);  // cppmode-camextras
+#endif
+   float mv[16];glGetFloatv(GL_MODELVIEW_MATRIX,mv);return cppmodeGlModel(this, mv, x, y, z, 2);}  // cppmode-camfix2
 
 // =============================================================================
 // CAMERA
@@ -1829,9 +2449,21 @@ void PApplet::applyDefaultCamera() {
 }
 
 void PApplet::camera(){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        // Java's defaults, through the routed full-argument version
+        float cz = (height * 0.5f) / ::std::tan(PI / 6.0f);
+        camera(width * 0.5f, height * 0.5f, cz, width * 0.5f, height * 0.5f, 0, 0, 1, 0); return;
+    }
+#endif
     applyDefaultCamera();
 }
 void PApplet::camera(float ex,float ey,float ez,float cx,float cy,float cz,float ux,float uy,float uz){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) lpSetEye(ex, ey, ez);
+#endif
+    { float v[9] = {ex, ey, ez, cx, cy, cz, ux, uy, uz}; for (int i = 0; i < 9; i++) g_lpCam[i] = v[i]; g_lpCamSet = true; }  // cppmode-camfix2
+    if(_backend){cppmodeLpCamera(_backend->graphics_id(),ex,ey,ez,cx,cy,cz,ux,uy,uz);return;}
     float eyeZ = ((float)logicalH/2.0f) / ::std::tan(PI*60.0f/360.0f);
     float near_ = eyeZ/10.0f, far_ = eyeZ*10.0f;
     glMatrixMode(GL_PROJECTION); glLoadIdentity();
@@ -1843,13 +2475,30 @@ void PApplet::camera(float ex,float ey,float ez,float cx,float cy,float cz,float
     glDisable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
 }
-void PApplet::beginCamera(){glMatrixMode(GL_MODELVIEW);glPushMatrix();}
-void PApplet::endCamera()  {glPopMatrix();}
+void PApplet::beginCamera(){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { processing_push_matrix(_backend->graphics_id()); return; }  // cppmode-camextras
+#endif
+    glMatrixMode(GL_MODELVIEW);glPushMatrix();}
+void PApplet::endCamera()  {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { processing_pop_matrix(_backend->graphics_id()); return; }  // cppmode-camextras
+#endif
+    glPopMatrix();}
 
 void PApplet::perspective(){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        // Java's defaults, through the routed full-argument version
+        float cz = (height * 0.5f) / ::std::tan(PI / 6.0f);
+        perspective(PI / 3.0f, (float)width / (float)height, cz / 10.0f, cz * 10.0f); return;
+    }
+#endif
     applyDefaultCamera();
 }
 void PApplet::perspective(float fov, float aspect, float zNear, float zFar) {
+    g_lpProjKind = 1; g_lpProj[0] = fov; g_lpProj[1] = aspect; g_lpProj[2] = zNear; g_lpProj[3] = zFar;  // cppmode-camfix2
+    if(_backend){cppmodeLpPerspective(_backend->graphics_id(),fov,aspect,zNear,zFar);return;}
     glMatrixMode(GL_PROJECTION); glLoadIdentity();
     glScalef(1,-1,1);
     _gluPerspective(degrees(fov), aspect, zNear, zFar);
@@ -1871,6 +2520,13 @@ void PApplet::applyStandardModelview() {
 }
 
 void PApplet::ortho() {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        // Java's defaults, through the routed full-argument version
+        float cz = (height * 0.5f) / ::std::tan(PI / 6.0f);
+        ortho(-width * 0.5f, width * 0.5f, -height * 0.5f, height * 0.5f, 0.0f, cz * 10.0f); return;
+    }
+#endif
     // Default ortho: 1:1 pixel mapping, origin at top-left, Y increases downward.
     // glOrtho(l, r, bottom, top, near, far):
     //   bottom = winHeight (screen bottom = large Y in Processing)
@@ -1887,6 +2543,8 @@ void PApplet::ortho() {
 }
 
 void PApplet::ortho(float l, float r, float b, float t, float n, float f) {
+    { g_lpProjKind = 2; float v[6] = {l, r, b, t, n, f}; for (int i = 0; i < 6; i++) g_lpProj[i] = v[i]; }  // cppmode-camfix2
+    if(_backend){cppmodeLpOrtho(_backend->graphics_id(),l,r,b,t,n,f);return;}
     // Processing Java ortho() uses the SAME standard modelview as perspective()
     // (eye at eyeZ above canvas center, looking at canvas center).
     // Only the projection changes: orthographic instead of frustum.
@@ -1903,12 +2561,55 @@ void PApplet::ortho(float l, float r, float b, float t, float n, float f) {
 }
 
 void PApplet::frustum(float l, float r, float b, float t, float n, float f) {
+    if(_backend){  // cppmode-cursor-frustum: libprocessing has no off-center frustum, so use the matching perspective
+        static bool warned = false;
+        if (!warned && (::std::fabs(l + r) > 1e-4f || ::std::fabs(b + t) > 1e-4f)) {
+            fprintf(stderr, "frustum(): off-center frustums aren't supported in the libprocessing renderer yet, using a centered one\n");
+            warned = true;
+        }
+        float hh = (t - b) * 0.5f, hw = (r - l) * 0.5f;
+        if (n > 0 && hh > 0 && hw > 0)
+            cppmodeLpPerspective(_backend->graphics_id(), 2.0f * ::std::atan(hh / n), hw / hh, n, f);
+        return;
+    }
     glMatrixMode(GL_PROJECTION); glLoadIdentity();
     glFrustum(l, r, b, t, n, f);
     applyStandardModelview();
 }
-void PApplet::printCamera(){float m[16];glGetFloatv(GL_MODELVIEW_MATRIX,m);::std::cout<<"Camera matrix:\n";for(int i=0;i<4;i++){for(int j=0;j<4;j++)::std::cout<<m[j*4+i]<<" ";::std::cout<<"\n";}}
-void PApplet::printProjection(){float m[16];glGetFloatv(GL_PROJECTION_MATRIX,m);::std::cout<<"Projection matrix:\n";for(int i=0;i<4;i++){for(int j=0;j<4;j++)::std::cout<<m[j*4+i]<<" ";::std::cout<<"\n";}}
+void PApplet::printCamera(){
+    {  // cppmode-camfix2: both renderers: camera() values, or Java's default camera
+        float cz = (height * 0.5f) / ::std::tan(PI / 6.0f);
+        float e[3] = {width * 0.5f, height * 0.5f, cz}, c[3] = {width * 0.5f, height * 0.5f, 0}, u[3] = {0, 1, 0};
+        if (g_lpCamSet) for (int i = 0; i < 3; i++) { e[i] = g_lpCam[i]; c[i] = g_lpCam[3 + i]; u[i] = g_lpCam[6 + i]; }
+        float z[3] = {e[0] - c[0], e[1] - c[1], e[2] - c[2]};
+        float zl = ::std::sqrt(z[0]*z[0] + z[1]*z[1] + z[2]*z[2]); if (zl > 0) for (float& k : z) k /= zl;
+        float x[3] = {u[1]*z[2] - u[2]*z[1], u[2]*z[0] - u[0]*z[2], u[0]*z[1] - u[1]*z[0]};
+        float xl = ::std::sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]); if (xl > 0) for (float& k : x) k /= xl;
+        float y[3] = {z[1]*x[2] - z[2]*x[1], z[2]*x[0] - z[0]*x[2], z[0]*x[1] - z[1]*x[0]};
+        float m[16] = { x[0], y[0], z[0], 0,  x[1], y[1], z[1], 0,  x[2], y[2], z[2], 0,
+                        -(x[0]*e[0] + x[1]*e[1] + x[2]*e[2]), -(y[0]*e[0] + y[1]*e[1] + y[2]*e[2]), -(z[0]*e[0] + z[1]*e[1] + z[2]*e[2]), 1 };
+        cppmodePrint4x4("Camera matrix:", m);
+        return;
+    }
+   float m[16];glGetFloatv(GL_MODELVIEW_MATRIX,m);::std::cout<<"Camera matrix:\n";for(int i=0;i<4;i++){for(int j=0;j<4;j++)::std::cout<<m[j*4+i]<<" ";::std::cout<<"\n";}}
+void PApplet::printProjection(){
+    {  // cppmode-camfix2: both renderers: last perspective()/ortho(), or Java's default perspective
+        float m[16] = {0};
+        if (g_lpProjKind == 2) {
+            float l = g_lpProj[0], r = g_lpProj[1], b = g_lpProj[2], t = g_lpProj[3], n = g_lpProj[4], f = g_lpProj[5];
+            m[0] = 2 / (r - l); m[5] = 2 / (t - b); m[10] = -2 / (f - n);
+            m[12] = -(r + l) / (r - l); m[13] = -(t + b) / (t - b); m[14] = -(f + n) / (f - n); m[15] = 1;
+        } else {
+            float cz = (height * 0.5f) / ::std::tan(PI / 6.0f);
+            float fov = PI / 3.0f, asp = height > 0 ? (float)width / height : 1, n = cz / 10, f = cz * 10;
+            if (g_lpProjKind == 1) { fov = g_lpProj[0]; asp = g_lpProj[1]; n = g_lpProj[2]; f = g_lpProj[3]; }
+            float t = 1.0f / ::std::tan(fov / 2);
+            m[0] = t / asp; m[5] = t; m[10] = (f + n) / (n - f); m[11] = -1; m[14] = 2 * f * n / (n - f);
+        }
+        cppmodePrint4x4("Projection matrix:", m);
+        return;
+    }
+   float m[16];glGetFloatv(GL_PROJECTION_MATRIX,m);::std::cout<<"Projection matrix:\n";for(int i=0;i<4;i++){for(int j=0;j<4;j++)::std::cout<<m[j*4+i]<<" ";::std::cout<<"\n";}}
 
 // =============================================================================
 // LIGHTS
@@ -1930,7 +2631,298 @@ static inline float lc(float v) { return PApplet::g_papplet ? v/PApplet::g_pappl
 
 // Apply all common light state and reset the index counter.
 // Call this at the start of a draw() that uses lights.
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+// Lights under libprocessing. Java clears lights every frame, so lights live in
+// this list and are destroyed before the next frame's draw().
+// Bevy uses physical units; these map Processing's 0..255 colors and are
+// tuned by eye against the OpenGL renderer.
+// Each can be overridden from the environment while tuning, e.g.
+//   CPPMODE_LP_POINT=2e10 processing
+static float lpEnvF(const char* name, float def) {
+    const char* v = getenv(name); return (v && *v) ? (float)atof(v) : def; }
+static const float LP_AMBIENT_BRIGHTNESS = lpEnvF("CPPMODE_LP_AMBIENT", 1000.0f);   // cd/m^2 at full white
+static const float LP_DIRECTIONAL_LUX    = lpEnvF("CPPMODE_LP_DIRECTIONAL", 3141.6f); // lux at full white
+// Bevy point lights fall off with distance squared in meters, and sketch units are
+// pixels, so this has to be huge to light things a few hundred pixels away
+static const float LP_POINT_LUMENS       = lpEnvF("CPPMODE_LP_POINT", 1.6e9f);         // lumens at full white
+static const float LP_LIGHT_RANGE        = lpEnvF("CPPMODE_LP_RANGE", 10000.0f);     // in sketch pixels
+// Processing adds light colors in sRGB space (128 + 128 = full brightness).
+// Bevy adds them in linear space, and lp_rgba is decoded from sRGB, which turns
+// 128 into 0.216. Encode first so the decoded linear value is Processing's 0.5.
+static float lpLinToSrgb(float v) {
+    v = v < 0 ? 0 : (v > 1 ? 1 : v);
+    return v <= 0.0031308f ? v * 12.92f : 1.055f * ::std::pow(v, 1.0f / 2.4f) - 0.055f;
+}
+static Color lpLightColor(float r, float g, float b) {
+    static bool shown = false;
+    if (!shown) { shown = true;
+        fprintf(stderr, "[CppMode] lights: ambient=%g directional=%g point=%g\n",
+                LP_AMBIENT_BRIGHTNESS, LP_DIRECTIONAL_LUX, LP_POINT_LUMENS); }
+    // Keep the hue as normal sRGB, then scale so the brightest channel lands on
+    // Processing's level. Per-channel mapping washes colored lights out to pastel.
+    auto dec = [](float v) { v = v < 0 ? 0 : (v > 1 ? 1 : v);
+        return v <= 0.04045f ? v / 12.92f : ::std::pow((v + 0.055f) / 1.055f, 2.4f); };
+    float m = ::std::max(r, ::std::max(g, b));
+    if (m <= 0.0f) return lp_rgba(0, 0, 0, 1.0f);
+    float k = m / dec(m);
+    return lp_rgba(lpLinToSrgb(dec(r) * k), lpLinToSrgb(dec(g) * k), lpLinToSrgb(dec(b) * k), 1.0f);
+}
+static ::std::vector<uint64_t> g_lpLights;
+static bool g_lpAmbientSet = false;
+// fill() is unlit by default; lights only show on a lit material. The first
+// light in a frame switches to a shared PBR material (fill still comes through
+// vertex colors); noLights() and the next frame switch back by popping the style.
+// ---- Processing-exact lighting --------------------------------------------
+// Light calls fill slots of the shader's PLights uniform instead of creating
+// Bevy lights; lit shapes draw with a custom material running P3D's formula.
+static const char* LP_PLIGHTS_SHADER = R"WESL(
+import processing::VertexOutput;
+// Bevy's view uniform, declared here like processing/vertex.wesl does
+// (that submodule isn't in every libprocessing build). Layout from bevy_render view.wgsl.
+struct View {
+    clip_from_world: mat4x4<f32>,
+    unjittered_clip_from_world: mat4x4<f32>,
+    world_from_clip: mat4x4<f32>,
+    world_from_view: mat4x4<f32>,
+    view_from_world: mat4x4<f32>,
+    clip_from_view: mat4x4<f32>,
+    view_from_clip: mat4x4<f32>,
+}
+@group(0) @binding(0) var<uniform> view: View;
+
+// Processing's P3D lighting (LightVert.glsl), computed per pixel.
+// pos.w is the kind: 0 ambient, 1 directional, 2 point, 3 spot.
+// dir.w is cos(spot angle), color.w is the spot concentration.
+struct PLights {
+    count: vec4<f32>,
+    fill: vec4<f32>,
+    eye: vec4<f32>,
+    mat_spec: vec4<f32>,
+    mat_emissive: vec4<f32>,
+    mat_ambient: vec4<f32>,
+    l0_pos: vec4<f32>, l0_dir: vec4<f32>, l0_color: vec4<f32>, l0_spec: vec4<f32>, l0_fall: vec4<f32>,
+    l1_pos: vec4<f32>, l1_dir: vec4<f32>, l1_color: vec4<f32>, l1_spec: vec4<f32>, l1_fall: vec4<f32>,
+    l2_pos: vec4<f32>, l2_dir: vec4<f32>, l2_color: vec4<f32>, l2_spec: vec4<f32>, l2_fall: vec4<f32>,
+    l3_pos: vec4<f32>, l3_dir: vec4<f32>, l3_color: vec4<f32>, l3_spec: vec4<f32>, l3_fall: vec4<f32>,
+    l4_pos: vec4<f32>, l4_dir: vec4<f32>, l4_color: vec4<f32>, l4_spec: vec4<f32>, l4_fall: vec4<f32>,
+    l5_pos: vec4<f32>, l5_dir: vec4<f32>, l5_color: vec4<f32>, l5_spec: vec4<f32>, l5_fall: vec4<f32>,
+    l6_pos: vec4<f32>, l6_dir: vec4<f32>, l6_color: vec4<f32>, l6_spec: vec4<f32>, l6_fall: vec4<f32>,
+    l7_pos: vec4<f32>, l7_dir: vec4<f32>, l7_color: vec4<f32>, l7_spec: vec4<f32>, l7_fall: vec4<f32>,
+}
+@group(3) @binding(0) var<uniform> plights: PLights;
+
+struct Acc { amb: vec3<f32>, dif: vec3<f32>, spe: vec3<f32> }
+
+fn to_linear(c: vec3<f32>) -> vec3<f32> {
+    return select(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, c <= vec3(0.04045));
+}
+fn to_srgb(c: vec3<f32>) -> vec3<f32> {
+    return select(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3(0.0031308));
+}
+
+fn light(acc: ptr<function, Acc>, p: vec4<f32>, d: vec4<f32>, c: vec4<f32>, s: vec4<f32>, f: vec4<f32>,
+         P: vec3<f32>, N: vec3<f32>, V: vec3<f32>, shin: f32) {
+    if (p.w < 0.5) {
+        let dist = length(p.xyz - P);
+        (*acc).amb += c.rgb / (f.x + f.y * dist + f.z * dist * dist);
+        return;
+    }
+    var L = -normalize(d.xyz);
+    var fo = 1.0;
+    if (p.w > 1.5) {
+        let to_l = p.xyz - P;
+        let dist = length(to_l);
+        L = to_l / max(dist, 1e-5);
+        fo = 1.0 / (f.x + f.y * dist + f.z * dist * dist);
+    }
+    var spot = 1.0;
+    if (p.w > 2.5) {
+        let sc = dot(-L, normalize(d.xyz));
+        spot = select(pow(max(sc, 0.0), c.w), 0.0, sc <= d.w);
+    }
+    let w = fo * spot;
+    (*acc).dif += c.rgb * w * max(dot(L, N), 0.0);
+    if (any(s.rgb > vec3(0.0))) {
+        let H = normalize(L + V);
+        (*acc).spe += s.rgb * w * pow(max(dot(N, H), 0.0), shin);
+    }
+}
+
+@fragment
+fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
+    let P = mesh.world_position.xyz;
+    let V = normalize(plights.eye.xyz - P);
+    // 2D shapes have no normals: face the camera, like P3D does for them
+    var N = V;
+    if (length(mesh.world_normal) > 1e-4) { N = normalize(mesh.world_normal); }
+    // P3D lights back faces with the flipped normal
+    if (dot(N, V) < 0.0) { N = -N; }
+    let fill = plights.fill.rgb;
+    let shin = max(plights.mat_spec.w, 1.0);
+    let n = i32(plights.count.x);
+    var acc = Acc(vec3(0.0), vec3(0.0), vec3(0.0));
+    if (n > 0) { light(&acc, plights.l0_pos, plights.l0_dir, plights.l0_color, plights.l0_spec, plights.l0_fall, P, N, V, shin); }
+    if (n > 1) { light(&acc, plights.l1_pos, plights.l1_dir, plights.l1_color, plights.l1_spec, plights.l1_fall, P, N, V, shin); }
+    if (n > 2) { light(&acc, plights.l2_pos, plights.l2_dir, plights.l2_color, plights.l2_spec, plights.l2_fall, P, N, V, shin); }
+    if (n > 3) { light(&acc, plights.l3_pos, plights.l3_dir, plights.l3_color, plights.l3_spec, plights.l3_fall, P, N, V, shin); }
+    if (n > 4) { light(&acc, plights.l4_pos, plights.l4_dir, plights.l4_color, plights.l4_spec, plights.l4_fall, P, N, V, shin); }
+    if (n > 5) { light(&acc, plights.l5_pos, plights.l5_dir, plights.l5_color, plights.l5_spec, plights.l5_fall, P, N, V, shin); }
+    if (n > 6) { light(&acc, plights.l6_pos, plights.l6_dir, plights.l6_color, plights.l6_spec, plights.l6_fall, P, N, V, shin); }
+    if (n > 7) { light(&acc, plights.l7_pos, plights.l7_dir, plights.l7_color, plights.l7_spec, plights.l7_fall, P, N, V, shin); }
+    let amb_mat = select(fill, plights.mat_ambient.rgb, plights.mat_ambient.w > 0.5);
+    let rgb = clamp(acc.amb * amb_mat + acc.dif * fill + acc.spe * plights.mat_spec.rgb
+                    + plights.mat_emissive.rgb, vec3(0.0), vec3(1.0));
+    return vec4(to_linear(rgb), plights.fill.a);
+}
+)WESL";
+static constexpr int LP_MAX_LIGHTS = 8;
+static int   g_lpLightCount = 0;
+static float g_lpFalloff[3] = {1, 0, 0};
+static float g_lpLightSpec[3] = {0, 0, 0};
+static bool g_lpLitFailed = false;
+static uint64_t g_lpLitShader = 0;
+struct LpLightSlot { float pos[4], dir[4], color[4], spec[4], fall[4]; };
+static LpLightSlot g_lpSlots[LP_MAX_LIGHTS];
+// one lit material per fill color; the fill is a shader value, the lights are shared
+// specular(), shininess(), emissive(), ambient(): stored like Java's style state (0..1)
+static float g_lpMatSpec[3] = {0, 0, 0}, g_lpMatShin = 1, g_lpMatEmis[3] = {0, 0, 0}, g_lpMatAmb[3] = {0, 0, 0};
+static bool  g_lpMatAmbSet = false;
+static float g_lpEye[3] = {0, 0, 0};  // camera position, set by camera()  // until ambient() is called, ambient follows the fill
+static ::std::map<::std::array<float, 15>, uint64_t> g_lpLitMats;
+static uint64_t g_lpPbr = 0;  // the lit material currently selected
+static void lpUploadSlotRaw(uint64_t m, int i) {
+    char nm[32];
+    const LpLightSlot& L = g_lpSlots[i];
+    auto set = [&](const char* f, const float* v) {
+        snprintf(nm, sizeof nm, "l%d_%s", i, f);
+        processing_material_set_float4(m, nm, v[0], v[1], v[2], v[3]); };
+    set("pos", L.pos); set("dir", L.dir); set("color", L.color); set("spec", L.spec); set("fall", L.fall);
+}
+// cppmode-lightcache: what each lit material last received, so unchanged lights
+// (the usual case: lights() every frame) cost nothing after the first frame
+struct LpUploaded { LpLightSlot slots[LP_MAX_LIGHTS]; bool valid[LP_MAX_LIGHTS] = {}; int count = -1; };
+static ::std::map<uint64_t, LpUploaded> g_lpUploaded;
+static void lpUploadSlot(uint64_t m, int i) {
+    LpUploaded& up = g_lpUploaded[m];
+    if (up.valid[i] && ::std::memcmp(&up.slots[i], &g_lpSlots[i], sizeof(LpLightSlot)) == 0) return;
+    lpUploadSlotRaw(m, i);
+    up.slots[i] = g_lpSlots[i]; up.valid[i] = true;
+}
+static void lpUploadCount(uint64_t m) {
+    LpUploaded& up = g_lpUploaded[m];
+    if (up.count == g_lpLightCount) return;
+    processing_material_set_float4(m, "count", (float)g_lpLightCount, 0, 0, 0);
+    up.count = g_lpLightCount;
+}
+static uint64_t lpLitMatFor(float r, float g, float b, float a) {
+    if (g_lpLitFailed) return 0;
+    ::std::array<float, 15> key{r, g, b, a,
+        g_lpMatSpec[0], g_lpMatSpec[1], g_lpMatSpec[2], g_lpMatShin,
+        g_lpMatEmis[0], g_lpMatEmis[1], g_lpMatEmis[2],
+        g_lpMatAmb[0], g_lpMatAmb[1], g_lpMatAmb[2], g_lpMatAmbSet ? 1.0f : 0.0f};
+    auto it = g_lpLitMats.find(key);
+    if (it != g_lpLitMats.end()) return it->second;
+    if (!g_lpLitShader) {
+        g_lpLitShader = processing_shader_create(LP_PLIGHTS_SHADER);
+        if (!g_lpLitShader) { const char* e = processing_check_error();
+            fprintf(stderr, "[CppMode] lights: shader failed to compile: %s\n", e ? e : "(no message)");
+            g_lpLitFailed = true; return 0; }
+    }
+    uint64_t m = processing_material_create_custom(g_lpLitShader);
+    if (!m) { const char* e = processing_check_error();
+        fprintf(stderr, "[CppMode] lights: material failed: %s\n", e ? e : "(no message)");
+        g_lpLitFailed = true; return 0; }
+    processing_material_set_double_sided(m, true);
+    processing_material_set_float4(m, "fill", r, g, b, a);
+    processing_material_set_float4(m, "eye", g_lpEye[0], g_lpEye[1], g_lpEye[2], 1);
+    processing_material_set_float4(m, "mat_spec", g_lpMatSpec[0], g_lpMatSpec[1], g_lpMatSpec[2], g_lpMatShin);
+    processing_material_set_float4(m, "mat_emissive", g_lpMatEmis[0], g_lpMatEmis[1], g_lpMatEmis[2], 0);
+    processing_material_set_float4(m, "mat_ambient", g_lpMatAmb[0], g_lpMatAmb[1], g_lpMatAmb[2], g_lpMatAmbSet ? 1.0f : 0.0f);
+    for (int i = 0; i < g_lpLightCount; i++) lpUploadSlot(m, i);
+    lpUploadCount(m);
+    g_lpLitMats[key] = m;
+    return m;
+}
+// kind: 0 ambient, 1 directional, 2 point, 3 spot. Positions and directions are
+// in sketch coordinates; with P3D's camera, world and sketch axes agree.
+static void lpAddLight(int kind, float r, float g, float b,
+                       float x, float y, float z, float nx, float ny, float nz,
+                       float spotCos, float conc) {
+    if (!g_lpPbr || g_lpLightCount >= LP_MAX_LIGHTS) return;
+    int i = g_lpLightCount++;
+    LpLightSlot& L = g_lpSlots[i];
+    // cppmode-lightxform: Java runs light positions and directions through the model matrix
+    if (PApplet::g_papplet && PApplet::g_papplet->_backend) {
+        auto* be = static_cast<LibProcessingBackend*>(PApplet::g_papplet->_backend);
+        float o[3];
+        be->model_point(x, y, z, 1, o);    x = o[0];  y = o[1];  z = o[2];
+        be->model_point(nx, ny, nz, 0, o); nx = o[0]; ny = o[1]; nz = o[2];
+    }
+    float pos[4] = {x, y, z, (float)kind}, dir[4] = {nx, ny, nz, spotCos}, col[4] = {r, g, b, conc};
+    float spe[4] = {g_lpLightSpec[0], g_lpLightSpec[1], g_lpLightSpec[2], 0};
+    float fal[4] = {g_lpFalloff[0], g_lpFalloff[1], g_lpFalloff[2], 0};
+    for (int k = 0; k < 4; k++) { L.pos[k] = pos[k]; L.dir[k] = dir[k]; L.color[k] = col[k]; L.spec[k] = spe[k]; L.fall[k] = fal[k]; }
+    for (auto& kv : g_lpLitMats) {
+        lpUploadSlot(kv.second, i);
+        lpUploadCount(kv.second);
+    }
+}
+static bool g_lpLit = false;
+static void lpEnsureLit(uint64_t gid) {
+    if (g_lpLit) return;
+    PApplet* pa = PApplet::g_papplet;
+    uint64_t m = pa ? lpLitMatFor(pa->fillR, pa->fillG, pa->fillB, pa->fillA) : 0;
+    if (!m) return;
+    g_lpPbr = m;
+    processing_push_style(gid);
+    processing_material(gid, m);
+    g_lpLit = true;
+}
+static void lpLitFillChanged(float r, float g, float b, float a) {
+    if (!g_lpLit || !PApplet::g_papplet || !PApplet::g_papplet->_backend) return;
+    uint64_t m = lpLitMatFor(r, g, b, a);
+    if (m && m != g_lpPbr) { g_lpPbr = m; processing_material(PApplet::g_papplet->_backend->graphics_id(), m); }  // cppmode-lightcache
+}
+// a material property changed: reselect the lit material for the current fill
+static void lpSetEye(float x, float y, float z) {
+    g_lpEye[0] = x; g_lpEye[1] = y; g_lpEye[2] = z;
+    for (auto& kv : g_lpLitMats) processing_material_set_float4(kv.second, "eye", x, y, z, 1);
+}
+static void lpLitRefresh() {
+    PApplet* pa = PApplet::g_papplet;
+    if (pa) lpLitFillChanged(pa->fillR, pa->fillG, pa->fillB, pa->fillA);
+}
+static void lpUnlit(uint64_t gid) {
+    if (!g_lpLit) return;
+    processing_pop_style(gid);
+    g_lpLit = false;
+}
+static void lpLightsReset(uint64_t gid) {
+    lpUnlit(gid);
+    g_lpLightCount = 0;
+    g_lpFalloff[0] = 1; g_lpFalloff[1] = 0; g_lpFalloff[2] = 0;
+    g_lpLightSpec[0] = g_lpLightSpec[1] = g_lpLightSpec[2] = 0;
+    for (uint64_t id : g_lpLights) processing_light_destroy(id);
+    g_lpLights.clear();
+    // only touch ambient if the sketch set it, and then go back to Bevy's default
+    if (g_lpAmbientSet) { processing_light_set_ambient(gid, lp_rgba(1, 1, 1, 1), 80.0f); g_lpAmbientSet = false; }
+}
+#else
+static void lpLightsReset(uint64_t) {}
+static void lpSetEye(float, float, float) {}
+static void lpLitFillChanged(float, float, float, float) {}
+#endif
+
 void PApplet::lights() {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        // as in Java: reset falloff and specular, gray ambient, gray light into the screen
+        g_lpFalloff[0] = 1; g_lpFalloff[1] = 0; g_lpFalloff[2] = 0;
+        g_lpLightSpec[0] = g_lpLightSpec[1] = g_lpLightSpec[2] = 0;
+        ambientLight(colorMaxH * 0.5f, colorMaxS * 0.5f, colorMaxB * 0.5f);
+        directionalLight(colorMaxH * 0.5f, colorMaxS * 0.5f, colorMaxB * 0.5f, 0, 0, -1); return;
+    }
+#endif
     // Matches Processing Java lights() exactly:
     //   ambientLight(128, 128, 128)
     //   directionalLight(128, 128, 128,  0, 0, -1)
@@ -1996,6 +2988,11 @@ void PApplet::lights() {
 }
 
 void PApplet::noLights() {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        lpLightsReset(_backend->graphics_id()); return;  // also restores unlit fill
+    }
+#endif
     glDisable(GL_LIGHTING);
     glDisable(GL_COLOR_MATERIAL);
     lightsEnabled = false;
@@ -2005,6 +3002,11 @@ void PApplet::noLights() {
 // Ambient light: emits equally in all directions, no diffuse.
 void PApplet::ambientLight(float r, float g, float b) { ambientLight(r,g,b,0,0,0); }
 void PApplet::ambientLight(float r, float g, float b, float x, float y, float z) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        lpEnsureLit(_backend->graphics_id()); lpAddLight(0, r/colorMaxH, g/colorMaxS, b/colorMaxB, x, y, z, 0, 0, 0, 0, 0); return;
+    }
+#endif
     if (lightIndex >= 8) return;
     GLenum lt = GL_LIGHT0 + lightIndex++;
 
@@ -2027,6 +3029,11 @@ void PApplet::ambientLight(float r, float g, float b, float x, float y, float z)
 // 'nx,ny,nz' is the direction the light TRAVELS (toward the scene).
 // OpenGL position with w=0 points TOWARD the light source, so we negate.
 void PApplet::directionalLight(float r, float g, float b, float nx, float ny, float nz) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        lpEnsureLit(_backend->graphics_id()); lpAddLight(1, r/colorMaxH, g/colorMaxS, b/colorMaxB, 0, 0, 0, nx, ny, nz, 0, 0); return;
+    }
+#endif
     if (lightIndex >= 8) return;
     GLenum lt = GL_LIGHT0 + lightIndex++;
 
@@ -2061,6 +3068,11 @@ void PApplet::directionalLight(float r, float g, float b, float nx, float ny, fl
 
 // Point light: emits in all directions from a world-space position.
 void PApplet::pointLight(float r, float g, float b, float x, float y, float z) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        lpEnsureLit(_backend->graphics_id()); lpAddLight(2, r/colorMaxH, g/colorMaxS, b/colorMaxB, x, y, z, 0, 0, 0, 0, 0); return;
+    }
+#endif
     if (lightIndex >= 8) return;
     GLenum lt = GL_LIGHT0 + lightIndex++;
 
@@ -2089,6 +3101,11 @@ void PApplet::spotLight(float r, float g, float b,
                float x,  float y,  float z,
                float nx, float ny, float nz,
                float angle, float conc) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        lpEnsureLit(_backend->graphics_id()); lpAddLight(3, r/colorMaxH, g/colorMaxS, b/colorMaxB, x, y, z, nx, ny, nz, ::std::cos(angle), conc); return;
+    }
+#endif
     // Java Processing sets spotlight pos/dir through the CURRENT modelview
     // (which includes LookAt * Scale(1,-1,1)) -- same as world space draw.
     // We flip Y to compensate for our glScalef(1,-1,1) baked into modelview.
@@ -2133,6 +3150,11 @@ void PApplet::spotLight(float r, float g, float b,
 
 // Override attenuation on all active lights (call after the light functions)
 void PApplet::lightFalloff(float c, float l, float q) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        g_lpFalloff[0] = c; g_lpFalloff[1] = l; g_lpFalloff[2] = q; return;
+    }
+#endif
     for (int i = 0; i < lightIndex; i++) {
         GLenum lt = GL_LIGHT0 + i;
         glLightf(lt, GL_CONSTANT_ATTENUATION,  c);
@@ -2143,6 +3165,11 @@ void PApplet::lightFalloff(float c, float l, float q) {
 
 // Set specular colour on all active lights
 void PApplet::lightSpecular(float r, float g, float b) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        g_lpLightSpec[0] = r/colorMaxH; g_lpLightSpec[1] = g/colorMaxS; g_lpLightSpec[2] = b/colorMaxB; return;
+    }
+#endif
     // Store as pending so subsequent light calls pick it up
     pendingSpecR = lc(r); pendingSpecG = lc(g); pendingSpecB = lc(b);
     // Also apply to any already-created lights
@@ -2153,13 +3180,20 @@ void PApplet::lightSpecular(float r, float g, float b) {
     }
 }
 
-void PApplet::normal(float nx, float ny, float nz) { glNormal3f(nx, ny, nz); }
+void PApplet::normal(float nx, float ny, float nz) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { g_lpNormal[0] = nx; g_lpNormal[1] = ny; g_lpNormal[2] = nz; g_lpHasNormal = true; return; }  // cppmode-api3
+#endif
+    glNormal3f(nx, ny, nz); }
 
 // =============================================================================
 // MATERIAL
 // =============================================================================
 
 void PApplet::ambient(float r, float g, float b) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { g_lpMatAmb[0] = lc(r); g_lpMatAmb[1] = lc(g); g_lpMatAmb[2] = lc(b); g_lpMatAmbSet = true; lpLitRefresh(); return; }
+#endif
     GLfloat col[] = { lc(r), lc(g), lc(b), 1.0f };
 #ifndef __EMSCRIPTEN__
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, col);
@@ -2167,12 +3201,16 @@ void PApplet::ambient(float r, float g, float b) {
 }
 void PApplet::ambient(color c) {
     unsigned int v = c.value;
-    ambient((v >> 16 & 0xFF) / 255.f,
-            (v >>  8 & 0xFF) / 255.f,
-            (v       & 0xFF) / 255.f);
+    // the float version divides by the color range, so scale into it (not 0..1)
+    ambient((v >> 16 & 0xFF) / 255.f * colorMaxH,
+            (v >>  8 & 0xFF) / 255.f * colorMaxS,
+            (v       & 0xFF) / 255.f * colorMaxB);
 }
 
 void PApplet::emissive(float r, float g, float b) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { g_lpMatEmis[0] = lc(r); g_lpMatEmis[1] = lc(g); g_lpMatEmis[2] = lc(b); lpLitRefresh(); return; }
+#endif
     GLfloat col[] = { lc(r), lc(g), lc(b), 1.0f };
 #ifndef __EMSCRIPTEN__
     glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, col);
@@ -2180,12 +3218,16 @@ void PApplet::emissive(float r, float g, float b) {
 }
 void PApplet::emissive(color c) {
     unsigned int v = c.value;
-    emissive((v >> 16 & 0xFF) / 255.f,
-             (v >>  8 & 0xFF) / 255.f,
-             (v       & 0xFF) / 255.f);
+    // the float version divides by the color range, so scale into it (not 0..1)
+    emissive((v >> 16 & 0xFF) / 255.f * colorMaxH,
+             (v >>  8 & 0xFF) / 255.f * colorMaxS,
+             (v       & 0xFF) / 255.f * colorMaxB);
 }
 
 void PApplet::specular(float r, float g, float b) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { g_lpMatSpec[0] = lc(r); g_lpMatSpec[1] = lc(g); g_lpMatSpec[2] = lc(b); lpLitRefresh(); return; }
+#endif
     GLfloat col[] = { lc(r), lc(g), lc(b), 1.0f };
 #ifndef __EMSCRIPTEN__
     glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, col);
@@ -2193,12 +3235,16 @@ void PApplet::specular(float r, float g, float b) {
 }
 void PApplet::specular(color c) {
     unsigned int v = c.value;
-    specular((v >> 16 & 0xFF) / 255.f,
-             (v >>  8 & 0xFF) / 255.f,
-             (v       & 0xFF) / 255.f);
+    // the float version divides by the color range, so scale into it (not 0..1)
+    specular((v >> 16 & 0xFF) / 255.f * colorMaxH,
+             (v >>  8 & 0xFF) / 255.f * colorMaxS,
+             (v       & 0xFF) / 255.f * colorMaxB);
 }
 
 void PApplet::shininess(float s) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { g_lpMatShin = s; lpLitRefresh(); return; }
+#endif
 #ifndef __EMSCRIPTEN__
     glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, s);
 #endif
@@ -2240,6 +3286,45 @@ bool PApplet::loadTTFFile(const ::std::string& path) {
     return stbtt_InitFont(&g_ttf.info, g_ttf.data.data(), 0) != 0;
 }
 
+#ifdef PROCESSING_USE_FREETYPE
+// Bake ASCII 32..127 with FreeType (hinted) into the same atlas layout the
+// stb path uses, so drawing and caching stay unchanged. Returns 0 on failure.
+static int cppmodeBakeFreeType(const ::std::vector<unsigned char>& data, float px,
+                               unsigned char* bitmap, int W, int H, stbtt_bakedchar* chars) {
+    static FT_Library lib = nullptr;
+    if (!lib && FT_Init_FreeType(&lib)) { lib = nullptr; return 0; }
+    FT_Face face = nullptr;
+    if (FT_New_Memory_Face(lib, data.data(), (FT_Long)data.size(), 0, &face)) return 0;
+    // textSize is the em size in pixels, as in Java
+    if (FT_Set_Char_Size(face, 0, (FT_F26Dot6)(px * 64.0f), 72, 72)) { FT_Done_Face(face); return 0; }
+    ::std::memset(bitmap, 0, (size_t)W * (size_t)H);
+    int x = 1, y = 1, rowH = 0;
+    for (int c = 32; c < 128; c++) {
+        stbtt_bakedchar& bc = chars[c - 32];
+        bc = stbtt_bakedchar{};
+        if (FT_Load_Char(face, (FT_ULong)c, FT_LOAD_RENDER | FT_LOAD_NO_BITMAP | FT_LOAD_FORCE_AUTOHINT | FT_LOAD_TARGET_LIGHT)) continue;
+        FT_GlyphSlot g = face->glyph;
+        int gw = (int)g->bitmap.width, gh = (int)g->bitmap.rows;
+        if (x + gw + 1 >= W) { x = 1; y += rowH + 1; rowH = 0; }
+        if (y + gh + 1 >= H) { FT_Done_Face(face); return 0; }   // doesn't fit: fall back
+        for (int r = 0; r < gh; r++)
+            ::std::memcpy(bitmap + (size_t)(y + r) * W + x,
+                          g->bitmap.buffer + (ptrdiff_t)r * g->bitmap.pitch, (size_t)gw);
+        bc.x0 = (unsigned short)x;        bc.y0 = (unsigned short)y;
+        bc.x1 = (unsigned short)(x + gw); bc.y1 = (unsigned short)(y + gh);
+        bc.xoff = (float)g->bitmap_left;
+        bc.yoff = -(float)g->bitmap_top;
+        // unhinted advance, so spacing agrees with textWidth()
+        bc.xadvance = (float)g->linearHoriAdvance / 65536.0f;
+        x += gw + 1;
+        if (gh > rowH) rowH = gh;
+    }
+    FT_Done_Face(face);
+    { static bool said = false; if (!said) { said = true; fprintf(stderr, "[CppMode] text: FreeType glyphs (auto-hinted)\n"); } }
+    return 1;
+}
+#endif
+
 void PApplet::bakeAtlas(float pixelSize) {
     if (!g_ttf.loaded) return;
     // Cache key: rounded to nearest 0.5px to avoid float noise
@@ -2257,8 +3342,15 @@ void PApplet::bakeAtlas(float pixelSize) {
     TTFAtlas atlas;
     g_ttf.atlasW = 1024; g_ttf.atlasH = 1024;
     ::std::vector<unsigned char> bitmap(g_ttf.atlasW * g_ttf.atlasH);
-    int ret = stbtt_BakeFontBitmap(
-        g_ttf.data.data(), 0, pixelSize,
+    int ret = 0;
+#ifdef PROCESSING_USE_FREETYPE
+    ret = cppmodeBakeFreeType(g_ttf.data, pixelSize, bitmap.data(), g_ttf.atlasW, g_ttf.atlasH, atlas.chars);
+#endif
+    if (ret == 0) ret = stbtt_BakeFontBitmap(
+        g_ttf.data.data(), 0,
+        // textSize is the font's em size (as in Java), but this call wants the
+        // full ascent-to-descent height, so convert.
+        stbtt_ScaleForMappingEmToPixels(&g_ttf.info, pixelSize) / stbtt_ScaleForPixelHeight(&g_ttf.info, 1.0f),
         bitmap.data(), g_ttf.atlasW, g_ttf.atlasH,
         32, 96, atlas.chars);
     if (ret == 0) { g_ttf.loaded = false; return; }
@@ -2340,8 +3432,76 @@ float PApplet::ttfStrWidth(const ::std::string& s) {
     return x;
 }
 
+#ifdef PROCESSING_USE_FREETYPE
+static int cppmodeBakeFreeType(const ::std::vector<unsigned char>& data, float px,
+                               unsigned char* bitmap, int W, int H, stbtt_bakedchar* chars);
+#endif
 void PApplet::drawTTFStr(float x, float y, const ::std::string& s) {
     if (!g_ttf.loaded) return;
+    if (_backend && _backend->glyph_images()) {
+        // libprocessing: draw our own letter images (the same FreeType/stb glyphs
+        // the OpenGL path uses) instead of its outline-based text, which comes
+        // out soft and dim at small sizes. One white atlas image per font and
+        // size, tinted with the fill colour.
+        struct LpAtlas { uint64_t img = 0; int w = 0, h = 0; stbtt_bakedchar chars[96]; };
+        static ::std::unordered_map<uint64_t, LpAtlas> lpAtlases;
+        uint64_t fh = 1469598103934665603ULL;   // FNV-1a over a sample of the font file
+        {
+            const auto& d = g_ttf.data;
+            size_t step = d.size() / 256 + 1;
+            for (size_t i = 0; i < d.size(); i += step) { fh ^= d[i]; fh *= 1099511628211ULL; }
+            fh ^= (uint64_t)d.size(); fh *= 1099511628211ULL;
+        }
+        uint64_t key = fh ^ ((uint64_t)::std::llround(g_textSize * 2.0f) * 0x9E3779B97F4A7C15ULL);
+        auto it = lpAtlases.find(key);
+        if (it == lpAtlases.end()) {
+            LpAtlas a;
+            const int W = 1024, H = 1024;
+            ::std::vector<unsigned char> bm((size_t)W * H);
+            int ok = 0;
+#ifdef PROCESSING_USE_FREETYPE
+            ok = cppmodeBakeFreeType(g_ttf.data, g_textSize, bm.data(), W, H, a.chars);
+#endif
+            if (ok == 0) {
+                ::std::fill(bm.begin(), bm.end(), (unsigned char)0);
+                ok = stbtt_BakeFontBitmap(g_ttf.data.data(), 0,
+                        stbtt_ScaleForMappingEmToPixels(&g_ttf.info, g_textSize) / stbtt_ScaleForPixelHeight(&g_ttf.info, 1.0f),
+                        bm.data(), W, H, 32, 96, a.chars) != 0 ? 1 : 0;
+            }
+            if (ok) {
+                int usedH = 1;
+                for (const auto& b : a.chars) if ((int)b.y1 + 1 > usedH) usedH = (int)b.y1 + 1;
+                if (usedH > H) usedH = H;
+                ::std::vector<unsigned char> rgba((size_t)W * usedH * 4);
+                for (size_t i = 0; i < (size_t)W * usedH; i++) {
+                    rgba[i*4+0] = rgba[i*4+1] = rgba[i*4+2] = 255;
+                    rgba[i*4+3] = bm[i];
+                }
+                a.w = W; a.h = usedH;
+                a.img = _backend->image_create_rgba((uint32_t)W, (uint32_t)usedH, rgba.data());
+            }
+            it = lpAtlases.emplace(key, a).first;
+        }
+        const LpAtlas& a = it->second;
+        if (!a.img) return;
+        // just under full alpha so letters go through the blend pass (smooth edges)
+        _backend->image_tint(fillR, fillG, fillB, fillA < 0.996f ? fillA : 0.996f);
+        float cx = x;
+        for (char ch : s) {
+            if ((unsigned char)ch < 32 || (unsigned char)ch >= 128) continue;
+            const stbtt_bakedchar& b = a.chars[ch - 32];
+            float gw = (float)(b.x1 - b.x0), gh = (float)(b.y1 - b.y0);
+            if (gw > 0 && gh > 0)
+                _backend->image_region(a.img,
+                    ::std::floor(cx + b.xoff + 0.5f), ::std::floor(y + b.yoff + 0.5f), gw, gh,
+                    (float)b.x0, (float)b.y0, gw, gh);
+            cx += b.xadvance;
+        }
+        // Always restore tint state after glyph rendering
+        if (doTint) _backend->image_tint(tintR, tintG, tintB, tintA);
+        else        _backend->image_no_tint();
+        return;
+    }
     bakeAtlas(g_textSize);
     // BUG FIX: same class of issue found in drawPGraphicsRect() -- if
     // lights() was called earlier this frame, GL_LIGHTING stays globally
@@ -2356,7 +3516,7 @@ void PApplet::drawTTFStr(float x, float y, const ::std::string& s) {
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, g_ttf.texID);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glApplyBlend(g_glBlendMode);
     // Use fill colour modulated by font alpha
     glColor4f(fillR, fillG, fillB, fillA);
     float cx = x;
@@ -2402,7 +3562,7 @@ float PApplet::getLineWidth(const ::std::string& line) {
 void PApplet::renderText(const ::std::string& msg, float x, float y) {
     if (msg.empty()) return;
 
-    float leading = (g_textLeading > 0) ? g_textLeading : g_textSize * 1.25f;
+    float leading = (g_textLeading > 0) ? g_textLeading : (textAscent() + textDescent()) * 1.275f;
 
     // Split on \n
     ::std::vector<::std::string> ls;
@@ -2412,9 +3572,12 @@ void PApplet::renderText(const ::std::string& msg, float x, float y) {
 
     float totalH = (float)ls.size() * leading;
     float yOff = 0;
-    if      (g_textAlignY == TOP_ALIGN)    yOff = g_textSize;
-    else if (g_textAlignY == CENTER_ALIGN) yOff = g_textSize * 0.5f - totalH * 0.5f + leading * 0.5f;
-    else if (g_textAlignY == BOTTOM_ALIGN) yOff = -totalH + leading;
+    // Same vertical rules as Processing's Java PGraphics.text()
+    (void)totalH;
+    float high = (float)((int)ls.size() - 1) * leading;
+    if      (g_textAlignY == TOP_ALIGN)    yOff = textAscent();
+    else if (g_textAlignY == CENTER_ALIGN) yOff = (textAscent() - high) * 0.5f;
+    else if (g_textAlignY == BOTTOM_ALIGN) yOff = -(textDescent() + high);
     for (int li = 0; li < (int)ls.size(); li++) {
         float lw  = getLineWidth(ls[li]);
         float dx  = x;
@@ -2433,18 +3596,27 @@ void PApplet::renderText(const ::std::string& msg, float x, float y) {
     }
 }
 
-void PApplet::text(const ::std::string& msg, float x, float y) { renderText(msg, x, y); }
-void PApplet::text(int   v, float x, float y) { renderText(::std::to_string(v), x, y); }
+void PApplet::text(const ::std::string& msg, float x, float y) {
+    if (_backend && !(_backend->glyph_images() && g_ttf.loaded)) { _backend->text(msg, x, y); return; }
+    renderText(msg, x, y);
+}
+void PApplet::text(int   v, float x, float y) { text(::std::to_string(v), x, y); }
 void PApplet::text(float v, float x, float y) {
-    ::std::ostringstream ss; ss << v; renderText(ss.str(), x, y);
+    ::std::ostringstream ss; ss << v; text(ss.str(), x, y);
 }
 
 // text(str, x, y, w, h) -- word-wrap into a bounding box, matching Processing Java.
 // Words are wrapped when they exceed width w. Lines are clipped at height h.
 // x,y is top-left corner of the box. Text starts at the baseline of the first line.
 void PApplet::text(const ::std::string& msg, float x, float y, float w, float h) {
+    if (_backend && !(_backend->glyph_images() && g_ttf.loaded)) {
+        // Java boxed text: first baseline one ascent below the box top (TOP/BASELINE)
+        bool placed = (g_textAlignY == CENTER_ALIGN || g_textAlignY == BOTTOM_ALIGN);
+        _backend->text_box(msg, x, placed ? y : y + textAscent(), w, h);
+        return;
+    }
     if (msg.empty() || w <= 0) return;
-    float leading = (g_textLeading > 0) ? g_textLeading : g_textSize * 1.4f;
+    float leading = (g_textLeading > 0) ? g_textLeading : (textAscent() + textDescent()) * 1.275f;
     float maxY = (h > 0) ? y + h : 1e9f;
 
     // Split message into tokens: words and explicit newlines
@@ -2465,12 +3637,19 @@ void PApplet::text(const ::std::string& msg, float x, float y, float w, float h)
     }
 
     // Layout: accumulate words into lines, wrap when line width exceeds w
-    float cy = y;
+    // Java boxed text: the first baseline sits one ascent below the box top,
+    // and lines are anchored at the box's left edge, middle or right edge.
+    float cy = y + textAscent();
+    if      (g_textAlignX == CENTER_ALIGN) x += w * 0.5f;
+    else if (g_textAlignX == RIGHT_ALIGN)  x += w;
+    auto _savedAlignY = g_textAlignY;
+    g_textAlignY = BASELINE;   // vertical placement is handled here, not per line
+    ::std::vector<::std::pair<::std::string, float>> _boxLines;   // laid out first, drawn at the end
     ::std::string line;
 
     auto flushLine = [&](){
         if (!line.empty() && cy + g_textSize <= maxY) {
-            renderText(line, x, cy);
+            _boxLines.emplace_back(line, cy);
         }
         line.clear();
         cy += leading;
@@ -2479,7 +3658,7 @@ void PApplet::text(const ::std::string& msg, float x, float y, float w, float h)
     for (auto& tok : tokens) {
         if (tok == "\n") {
             // Explicit newline: flush current line and advance
-            if (cy + g_textSize <= maxY) renderText(line, x, cy);
+            if (cy + g_textSize <= maxY) _boxLines.emplace_back(line, cy);
             line.clear();
             cy += leading;
             continue;
@@ -2490,7 +3669,7 @@ void PApplet::text(const ::std::string& msg, float x, float y, float w, float h)
 
         if (!line.empty() && cw > w) {
             // Word doesn't fit: flush current line, start new line with this word
-            if (cy + g_textSize <= maxY) renderText(line, x, cy);
+            if (cy + g_textSize <= maxY) _boxLines.emplace_back(line, cy);
             line.clear();
             cy += leading;
             // If the word itself is wider than w, wrap it character by character
@@ -2499,7 +3678,7 @@ void PApplet::text(const ::std::string& msg, float x, float y, float w, float h)
                 for (char c : tok) {
                     ::std::string test2 = charLine + c;
                     if (!charLine.empty() && getLineWidth(test2) > w) {
-                        if (cy + g_textSize <= maxY) renderText(charLine, x, cy);
+                        if (cy + g_textSize <= maxY) _boxLines.emplace_back(charLine, cy);
                         charLine.clear();
                         cy += leading;
                     }
@@ -2515,7 +3694,7 @@ void PApplet::text(const ::std::string& msg, float x, float y, float w, float h)
             for (char c : tok) {
                 ::std::string test2 = charLine + c;
                 if (!charLine.empty() && getLineWidth(test2) > w) {
-                    if (cy + g_textSize <= maxY) renderText(charLine, x, cy);
+                    if (cy + g_textSize <= maxY) _boxLines.emplace_back(charLine, cy);
                     charLine.clear();
                     cy += leading;
                 }
@@ -2528,12 +3707,25 @@ void PApplet::text(const ::std::string& msg, float x, float y, float w, float h)
     }
     // Flush remaining text
     if (!line.empty() && cy + g_textSize <= maxY) {
-        renderText(line, x, cy);
+        _boxLines.emplace_back(line, cy);
     }
+    {   // Java: CENTER and BOTTOM place the whole block of lines inside the box height
+        float shift = 0;
+        float gaps = _boxLines.empty() ? 0.0f : (float)(_boxLines.size() - 1);
+        if (h > 0 && _savedAlignY == CENTER_ALIGN)
+            shift = (h - (textAscent() + leading * gaps)) * 0.5f;
+        else if (h > 0 && _savedAlignY == BOTTOM_ALIGN)
+            shift = (y + h - textDescent() - leading * gaps) - (y + textAscent());
+        for (auto& bl : _boxLines) renderText(bl.first, x, bl.second + shift);
+    }
+    g_textAlignY = _savedAlignY;
 }
 
 void PApplet::textSize(float size) {
     g_textSize = size;
+    if (_backend) _backend->text_size(size);
+    g_textLeading = 0;  // Java: textSize() resets the leading
+    if (_backend) _backend->text_leading((textAscent() + textDescent()) * 1.275f);
 #if PROCESSING_HAS_STB_TRUETYPE
     if (g_ttf.loaded) bakeAtlas(size);
 #endif
@@ -2552,16 +3744,27 @@ void PApplet::textAlign(int alignX, int alignY) {
     };
     g_textAlignX = mapAlign(alignX);
     if(alignY >= 0) g_textAlignY = mapAlign(alignY);
+    if (_backend) {
+        int h = g_textAlignX == RIGHT_ALIGN ? 2 : g_textAlignX == CENTER_ALIGN ? 1 : 0;
+        int v = g_textAlignY == TOP_ALIGN ? 1 : g_textAlignY == CENTER_ALIGN ? 2
+              : g_textAlignY == BOTTOM_ALIGN ? 3 : 0;
+        _backend->text_align(h, v);
+    }
 }
-void PApplet::textLeading(float v) { g_textLeading = v; }
+void PApplet::textLeading(float v) { g_textLeading = v; if (_backend) _backend->text_leading(v); }
 void PApplet::textMode(int) {}
 
-float PApplet::textWidth(const ::std::string& s) { return getLineWidth(s); }
+float PApplet::textWidth(const ::std::string& s) {
+    if (_backend && !(_backend->glyph_images() && g_ttf.loaded)) { float w = _backend->text_width(s); if (w >= 0) return w; }
+    return getLineWidth(s);
+}
 
 float PApplet::textAscent() {
 #if PROCESSING_HAS_STB_TRUETYPE
     if (g_ttf.loaded) {
         float sc = stbtt_ScaleForMappingEmToPixels(&g_ttf.info, g_textSize);
+        // Java Processing: ascent is the height of 'd'
+        { int x0,y0,x1,y1; if (stbtt_GetCodepointBox(&g_ttf.info, 'd', &x0,&y0,&x1,&y1)) return y1 * sc; }
         int asc; stbtt_GetFontVMetrics(&g_ttf.info, &asc, nullptr, nullptr);
         return asc * sc;
     }
@@ -2574,6 +3777,8 @@ float PApplet::textDescent() {
 #if PROCESSING_HAS_STB_TRUETYPE
     if (g_ttf.loaded) {
         float sc = stbtt_ScaleForMappingEmToPixels(&g_ttf.info, g_textSize);
+        // Java Processing: descent is how far 'p' drops below the baseline
+        { int x0,y0,x1,y1; if (stbtt_GetCodepointBox(&g_ttf.info, 'p', &x0,&y0,&x1,&y1)) return ::std::fabs(y0 * sc); }
         int desc; stbtt_GetFontVMetrics(&g_ttf.info, nullptr, &desc, nullptr);
         return ::std::fabs(desc * sc);
     }
@@ -2598,7 +3803,32 @@ PImage* PApplet::createImage(int w,int h,int mode){
     return img;
 }
 
+// Upload a PImage's CPU pixels to libprocessing the first time it is drawn,
+// and again after updatePixels(). Works for loadImage, createImage and URLs.
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+static bool lpEnsureImage(ProcessingBackend* be, PImage* img) {
+    if (!img || img->width <= 0 || img->height <= 0) return false;
+    if (img->lp_image_id && !img->dirty) return true;
+    size_t n = (size_t)img->width * (size_t)img->height;
+    ::std::vector<unsigned char> rgba(n * 4);
+    for (size_t i = 0; i < n; i++) {
+        uint32_t c = (uint32_t)img->pixels[i];   // ARGB
+        rgba[i*4+0] = (c >> 16) & 0xff;
+        rgba[i*4+1] = (c >> 8)  & 0xff;
+        rgba[i*4+2] =  c        & 0xff;
+        rgba[i*4+3] = (c >> 24) & 0xff;
+    }
+    img->lp_image_id = be->image_create_rgba((uint32_t)img->width, (uint32_t)img->height, rgba.data());
+    img->dirty = false;
+    return img->lp_image_id != 0;
+}
+#else
+// OpenGL build: _backend is always null, so this is never reached
+template <class B> static bool lpEnsureImage(B*, PImage*) { return false; }
+#endif
+
 PImage* PApplet::loadImage(const ::std::string& path){
+    // libprocessing: decoded here like OpenGL, uploaded on first draw
     // Handle URLs: download with curl/wget and validate image magic bytes
     if (path.size()>7 && (path.substr(0,7)=="http://" || path.substr(0,8)=="https://")){
 #ifdef _WIN32
@@ -2699,6 +3929,117 @@ PImage* PApplet::loadImage(const ::std::string& path){
     return new PImage(); // return empty (not null) so -> calls are safe
 }
 
+// ---- cppmode-pg-offscreen: libprocessing createGraphics() / saveFrame() ----
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+#define CPPMODE_LP_STYLE_FIELDS(X) X(fillR) X(fillG) X(fillB) X(fillA) X(strokeR) X(strokeG) X(strokeB) X(strokeA) X(strokeW) X(doFill) X(doStroke) X(smoothing) X(currentRectMode) X(currentEllipseMode) X(currentImageMode) X(tintR) X(tintG) X(tintB) X(tintA) X(doTint) X(colorModeVal) X(colorMaxH) X(colorMaxS) X(colorMaxB) X(colorMaxA) X(g_textSize) X(g_textAlignX) X(g_textAlignY) X(g_textLeading)
+// cppmode-pg-v5: same style swap the OpenGL beginDraw()/endDraw() do, so pg keeps its own
+// rectMode, textSize, tint and so on, and the main canvas gets its own back after
+template <class S> static void cppmodeLpStyleSave(S& s, PApplet* p) {
+#define X(f) s.f = p->f;
+    CPPMODE_LP_STYLE_FIELDS(X)
+#undef X
+}
+template <class S> static void cppmodeLpStyleLoad(const S& s, PApplet* p) {
+#define X(f) p->f = s.f;
+    CPPMODE_LP_STYLE_FIELDS(X)
+#undef X
+}
+bool cppmodeLpBeginDraw(PGraphics* pg) {
+    PApplet* app = PApplet::g_papplet;
+    if (!pg || !app || !app->_backend) return false;
+    if (!static_cast<LibProcessingBackend*>(app->_backend)->cpp_pg_begin(pg->width, pg->height, pg->lp_surface, pg->lp_graphics)) return true;
+    cppmodeLpStyleSave(pg->_savedMainStyle, app);
+    cppmodeLpStyleLoad(pg->myStyle, app);
+    return true;
+}
+bool cppmodeLpEndDraw(PGraphics* pg) {
+    PApplet* app = PApplet::g_papplet;
+    if (!pg || !app || !app->_backend) return false;
+    if (!pg->lp_graphics) return true;  // endDraw() without beginDraw()
+    static_cast<LibProcessingBackend*>(app->_backend)->cpp_pg_end(pg->lp_graphics);
+    cppmodeLpStyleSave(pg->myStyle, app);          // remember pg's style for next time
+    cppmodeLpStyleLoad(pg->_savedMainStyle, app);  // and give the main canvas its own back
+    pg->lp_image_id = pg->lp_surface;   // the offscreen surface is an image, image(pg) draws it
+    pg->dirty = false;
+    return true;
+}
+static void cppmodeLpSaveFrame(PApplet* app, const ::std::string& filename) {
+    ::std::string fn = filename.empty() ? ::std::string("screen-####.png") : filename;
+    size_t p = fn.find('#');
+    if (p != ::std::string::npos) {
+        size_t q = p; while (q < fn.size() && fn[q] == '#') q++;
+        char num[32]; snprintf(num, sizeof num, "%0*d", (int)(q - p), app->frameCount);
+        fn.replace(p, q - p, num);
+    }
+    if (!fn.empty() && fn[0] != '/') {
+        const char* sp = getenv("PROCESSING_SKETCH_PATH");
+        if (sp && sp[0]) fn = ::std::string(sp) + "/" + fn;
+    }
+    ::std::vector<unsigned char> px; int w = 0, h = 0;
+    if (!static_cast<LibProcessingBackend*>(app->_backend)->cpp_readback_rgb(app->width, app->height, px, w, h)) return;
+    ::std::string ext = fn.size() >= 4 ? fn.substr(fn.size() - 4) : "";
+    for (auto& c : ext) c = (char)tolower((unsigned char)c);
+    int ok = 0;
+    if (ext == ".jpg" || ext == "jpeg")      ok = stbi_write_jpg(fn.c_str(), w, h, 3, px.data(), 95);
+    else if (ext == ".bmp")                  ok = stbi_write_bmp(fn.c_str(), w, h, 3, px.data());
+    else if (ext == ".tga" || ext == ".tif" || ext == "tiff") ok = cppmodeWriteTgaOrTiff(fn.c_str(), ext, w, h, px.data());
+    else { if (ext != ".png") fn += ".png"; ok = stbi_write_png(fn.c_str(), w, h, 3, px.data(), w * 3); }
+    if (!ok) fprintf(stderr, "saveFrame: could not write %s\n", fn.c_str());
+}
+// cppmode-pg-v5: filter() and pg.save() for the libprocessing renderer
+static void cppmodeLpFilter(PApplet* app, int mode, float param) {
+    auto* be = static_cast<LibProcessingBackend*>(app->_backend);
+    {   // cppmode-gpu-filter: GPU first, the CPU readback below is the fallback
+        int k = mode == GRAY ? 0 : mode == INVERT ? 1 : mode == THRESHOLD ? 2 : mode == POSTERIZE ? 3 : mode == BLUR ? 4 : mode == OPAQUE ? 5 : mode == ERODE ? 6 : mode == DILATE ? 7 : -1;
+        float p = param;
+        if (k == 4 && p == 0.5f) p = 1.0f;         // filter(BLUR) with no radius: Java's default is 1
+        if (k == 3 && (p < 2.0f || p > 255.0f)) k = -1;  // odd posterize levels: let the CPU path deal with it
+        if (k >= 0 && be->cpp_gpu_filter(k, p)) return;
+    }
+    PImage img; int w = 0, h = 0;
+    if (!be->cpp_readback_argb(be->cpp_current_gid(), app->width, app->height, img.pixels, w, h)) return;
+    img.width = w; img.height = h;
+    img.filter(mode, param);
+    be->cpp_update_argb(be->cpp_current_gid(), img.pixels);
+}
+static bool cppmodeLpWriteArgb(const ::std::string& fn0, const ::std::vector<unsigned int>& px, int w, int h) {
+    ::std::string fn = fn0;
+    if (!fn.empty() && fn[0] != '/') {
+        const char* sp = getenv("PROCESSING_SKETCH_PATH");
+        if (sp && sp[0]) fn = ::std::string(sp) + "/" + fn;
+    }
+    ::std::vector<unsigned char> rgb((size_t)w * h * 3);
+    for (size_t i = 0; i < (size_t)w * h; i++) {
+        rgb[i*3+0] = (px[i] >> 16) & 255; rgb[i*3+1] = (px[i] >> 8) & 255; rgb[i*3+2] = px[i] & 255;
+    }
+    ::std::string ext = fn.size() >= 4 ? fn.substr(fn.size() - 4) : "";
+    for (auto& c : ext) c = (char)tolower((unsigned char)c);
+    int ok = 0;
+    if (ext == ".jpg" || ext == "jpeg")      ok = stbi_write_jpg(fn.c_str(), w, h, 3, rgb.data(), 95);
+    else if (ext == ".bmp")                  ok = stbi_write_bmp(fn.c_str(), w, h, 3, rgb.data());
+    else if (ext == ".tga" || ext == ".tif" || ext == "tiff") ok = cppmodeWriteTgaOrTiff(fn.c_str(), ext, w, h, rgb.data());
+    else { if (ext != ".png") fn += ".png"; ok = stbi_write_png(fn.c_str(), w, h, 3, rgb.data(), w * 3); }
+    if (!ok) fprintf(stderr, "save: could not write %s\n", fn.c_str());
+    return ok != 0;
+}
+void PGraphics::save(const ::std::string& filename) {
+    PApplet* app = PApplet::g_papplet;
+    if (app && app->_backend) {
+        if (!lp_graphics) { fprintf(stderr, "pg.save(): draw into it with beginDraw()/endDraw() first\n"); return; }
+        auto* be = static_cast<LibProcessingBackend*>(app->_backend);
+        ::std::vector<unsigned int> px; int w = 0, h = 0;
+        if (be->cpp_readback_argb(lp_graphics, width, height, px, w, h)) cppmodeLpWriteArgb(filename, px, w, h);
+        return;
+    }
+    if (pixels.size() == (size_t)width * height) cppmodeLpWriteArgb(filename, pixels, width, height);
+}
+#else
+bool cppmodeLpBeginDraw(PGraphics*) { return false; }
+bool cppmodeLpEndDraw(PGraphics*) { return false; }
+void PGraphics::save(const ::std::string& filename) {
+    fprintf(stderr, "pg.save() works in the libprocessing renderer for now\n"); (void)filename;
+}
+#endif
 PGraphics* PApplet::createGraphics(int w,int h){return new PGraphics(w,h);}
 PGraphics* PApplet::createGraphics(int w,int h,int renderer){
     // The renderer argument genuinely matters: a P3D buffer needs
@@ -2742,7 +4083,7 @@ void PApplet::drawImageRect(PImage& img,float x,float y,float w,float h){
     if(img.dirty) img.uploadTexture();
     if(img.texID==0) return;
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glApplyBlend(g_glBlendMode);
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D,img.texID);
     glColor4f(doTint?tintR:1.f,doTint?tintG:1.f,doTint?tintB:1.f,doTint?tintA:1.f);
@@ -2784,6 +4125,16 @@ void PApplet::drawImage_impl(PImage* img, float x, float y, float w, float h) {
 
 // ── Public image() entry points ─────────────────────────────────────────────
 void PApplet::drawPGraphicsRect(PGraphics& pg, float x, float y, float w, float h){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-api4: image(pg) draws the offscreen surface endDraw() left behind
+        if (!pg.lp_image_id || pg.width == 0 || pg.height == 0) return;
+        if (!doTint) _backend->image_no_tint();
+        else _backend->image_tint(tintR, tintG, tintB, tintA);
+        if (currentImageMode == CENTER) { x -= w * 0.5f; y -= h * 0.5f; }
+        else if (currentImageMode == CORNERS) { w -= x; h -= y; }
+        processing_image_scaled(_backend->graphics_id(), pg.lp_image_id, x, y, w, h);
+        return; }
+#endif
     PDEBUG("drawPGraphicsRect ENTRY: requested x=%.1f y=%.1f w=%.1f h=%.1f | pg.width=%d pg.height=%d | pg.texID=%u\n",
            x, y, w, h, pg.width, pg.height, pg.texID);
     if(pg.width==0||pg.height==0) { PDEBUG("  -> early return: width or height is 0\n"); return; }
@@ -2802,9 +4153,9 @@ void PApplet::drawPGraphicsRect(PGraphics& pg, float x, float y, float w, float 
     GLboolean wasDepthTest = glIsEnabled(GL_DEPTH_TEST);
     if (wasLighting) glDisable(GL_LIGHTING);
     if (wasDepthTest) glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND); glApplyBlend(g_glBlendMode);
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,pg.texID);
-    glColor4f(1,1,1,1);
+    if (doTint) glColor4f(tintR, tintG, tintB, tintA); else glColor4f(1,1,1,1);  // cppmode-pgpixels: tint() applies to image(pg)
 #ifdef __EMSCRIPTEN__
     glBegin(GL_TRIANGLES);
     glTexCoord2f(0,0);glVertex2f(x,y);
@@ -2830,10 +4181,33 @@ void PApplet::drawPGraphicsRect(PGraphics& pg, float x, float y, float w, float 
 void PApplet::image(PGraphics& pg, float x, float y){ drawPGraphicsRect(pg,x,y,(float)pg.width,(float)pg.height); }
 void PApplet::image(PGraphics& pg, float x, float y, float w, float h){ drawPGraphicsRect(pg,x,y,w,h); }
 void PApplet::image(PImage* img, float x, float y) {
+    if (!img) return;
+    if (_backend && lpEnsureImage(_backend, img)) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+        if (!doTint) _backend->image_no_tint();
+        else _backend->image_tint(tintR, tintG, tintB, tintA);
+#endif
+        if (currentImageMode == CENTER && img->width > 0 && img->height > 0) {
+            float iw = (float)img->width, ih = (float)img->height;
+            processing_image_scaled(_backend->graphics_id(), img->lp_image_id, x - iw * 0.5f, y - ih * 0.5f, iw, ih); return;
+        }
+        processing_image(_backend->graphics_id(), img->lp_image_id, x, y); return;
+    }
     if(!img || img->width==0 || img->height==0) return;
     drawImage_impl(img, x, y, (float)img->width, (float)img->height);
 }
 void PApplet::image(PImage* img, float x, float y, float w, float h) {
+    if (!img) return;
+    if (_backend && lpEnsureImage(_backend, img)) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+        if (!doTint) _backend->image_no_tint();
+        else _backend->image_tint(tintR, tintG, tintB, tintA);
+#endif
+        // imageMode, as in Java: CENTER is the middle, CORNERS gives the opposite corner
+        if (currentImageMode == CENTER)  { x -= w * 0.5f; y -= h * 0.5f; }
+        if (currentImageMode == CORNERS) { w -= x; h -= y; }
+        processing_image_scaled(_backend->graphics_id(), img->lp_image_id, x, y, w, h); return;
+    }
     if(!img || img->width==0 || img->height==0) return;
     drawImage_impl(img, x, y, w, h);
 }
@@ -2841,12 +4215,24 @@ void PApplet::image(PImage* img, float x, float y, float w, float h) {
 void PApplet::image(PImage* img, float dx1,float dy1,float dx2,float dy2,
                                float sx1,float sy1,float sx2,float sy2) {
     if(!img || img->width==0 || img->height==0) return;
+    // As in Java: args 3/4 are width/height unless imageMode(CORNERS);
+    // source coords are always pixel corners. Resolve to dest corners here.
+    if (currentImageMode == CORNER)       { dx2 += dx1; dy2 += dy1; }
+    else if (currentImageMode == CENTER)  { float hw = dx2 * 0.5f, hh = dy2 * 0.5f;
+                                            dx2 = dx1 + hw; dy2 = dy1 + hh; dx1 -= hw; dy1 -= hh; }
+    if (_backend && lpEnsureImage(_backend, img)) {
+        if (!doTint) _backend->image_no_tint();
+        else _backend->image_tint(tintR, tintG, tintB, tintA);
+        _backend->image_region(img->lp_image_id, dx1, dy1, dx2 - dx1, dy2 - dy1,
+                               sx1, sy1, sx2 - sx1, sy2 - sy1);
+        return;
+    }
     if(img->dirty) img->uploadTexture();
     if(img->texID==0) return;
     // Convert source pixel coords to UV [0,1]
     float u1=sx1/img->width, v1=sy1/img->height;
     float u2=sx2/img->width, v2=sy2/img->height;
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND); glApplyBlend(g_glBlendMode);
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,img->texID);
     glColor4f(doTint?tintR:1.f,doTint?tintG:1.f,doTint?tintB:1.f,doTint?tintA:1.f);
     glBegin(GL_QUADS);
@@ -2859,7 +4245,7 @@ void PApplet::image(PImage* img, float dx1,float dy1,float dx2,float dy2,
     glColor4f(1.f,1.f,1.f,1.f);
 }
 
-void PApplet::imageMode(int m){currentImageMode=m;}
+void PApplet::imageMode(int m){currentImageMode=m;}  // resolved in image(), not forwarded
 void PApplet::tint(float gray)           {tint(gray, colorMaxA);}
 void PApplet::tint(float gray, float a) {
     // tint(gray, alpha) -- both in 0-255 range like Processing Java
@@ -2875,10 +4261,18 @@ void PApplet::tint(float r, float g, float b, float a) {
     tintA = a / 255.f;
     doTint = true;
 }
-void PApplet::noTint(){doTint=false;}
+void PApplet::tint(float r, float g, float b) { tint(r, g, b, colorMaxA); }
+void PApplet::noTint(){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){_backend->image_no_tint();}
+#endif
+    doTint=false;}
 
 void PApplet::filter(int mode) { filter(mode, 0.5f); }
 void PApplet::filter(int mode, float param) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { cppmodeLpFilter(this, mode, param); return; }  // cppmode-pg-v5
+#endif
     int w = winWidth, h = winHeight, total = w * h;
     ::std::vector<unsigned char> buf(total * 4);
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
@@ -2926,13 +4320,42 @@ void PApplet::filter(int mode, float param) {
         }
     }
 #ifndef __EMSCRIPTEN__
+    glWindowPos2i(0, 0);  // cppmode-pimage-api: set() moves the raster position
     glDrawPixels(w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
 #endif
 }
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+// cppmode-fastpixels: pixels[] as loadPixels() left it, so updatePixels() uploads only the changed rows
+static ::std::vector<unsigned int> g_lpPixSnap;
+#endif
 void PApplet::loadPixels() {
-    // Copy framebuffer into pixels[]
     int total = winWidth * winHeight;
     pixels.resize(total);
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        // graphics_readback flushes the queued draw commands itself;
+        // flushing here too renders an empty second frame and reads that
+        ::std::vector<Color> buf(total);
+        processing_graphics_readback(_backend->graphics_id(), buf.data(), (uintptr_t)total);
+        // cppmode-fastpixels: readback is LinearRgba; pixels[] is sRGB like Java.
+        // A table built once replaces pow() per channel (about 0.5M calls a frame at 600x300).
+        static unsigned char lut[4097]; static bool lutReady = false;
+        if (!lutReady) { lutReady = true;
+            for (int k = 0; k <= 4096; k++) { float v = k / 4096.0f;
+                v = v <= 0.0031308f ? v * 12.92f : 1.055f * ::std::pow(v, 1.f / 2.4f) - 0.055f;
+                lut[k] = (unsigned char)(v * 255.f + 0.5f); } }
+        auto idx = [](float v) -> int { v = v < 0 ? 0 : (v > 1 ? 1 : v); return (int)(v * 4096.f + 0.5f); };
+        auto ch  = [](float v) -> unsigned { v = v < 0 ? 0 : (v > 1 ? 1 : v); return (unsigned)(v * 255.f + 0.5f); };
+        for (int i = 0; i < total; i++) {
+            const Color& c = buf[i];
+            pixels[i] = (ch(c.a) << 24) | ((unsigned)lut[idx(c.c1)] << 16) | ((unsigned)lut[idx(c.c2)] << 8) | lut[idx(c.c3)];
+        }
+        g_lpPixSnap.assign(pixels.begin(), pixels.end());   // updatePixels() sends only what changed
+        return;
+    }
+#endif
+    // Copy framebuffer into pixels[] (OpenGL path)
+
     ::std::vector<unsigned char> buf(total * 4);
     glReadPixels(0, 0, winWidth, winHeight, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
     // Convert RGBA + flip Y (GL is bottom-up, Processing is top-down)
@@ -2947,6 +4370,32 @@ void PApplet::loadPixels() {
 }
 void PApplet::updatePixels() {
     int total = winWidth * winHeight;
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-fastpixels: this used to fall through to glDrawPixels, which does nothing here
+        if ((int)pixels.size() < total) return;
+        int y0 = 0, y1 = winHeight - 1;
+        bool snap = (int)g_lpPixSnap.size() == total;
+        if (snap) {
+            y0 = -1;
+            for (int y = 0; y < winHeight && y0 < 0; y++)
+                if (::std::memcmp(&pixels[(size_t)y * winWidth], &g_lpPixSnap[(size_t)y * winWidth], winWidth * sizeof(unsigned int))) y0 = y;
+            if (y0 < 0) return;   // nothing changed
+            for (int y = winHeight - 1; y >= y0; y--)
+                if (::std::memcmp(&pixels[(size_t)y * winWidth], &g_lpPixSnap[(size_t)y * winWidth], winWidth * sizeof(unsigned int))) { y1 = y; break; }
+        }
+        size_t n = (size_t)(y1 - y0 + 1) * winWidth;
+        ::std::vector<Color> buf(n);
+        for (size_t k = 0; k < n; k++) {
+            unsigned int c = pixels[(size_t)y0 * winWidth + k];
+            buf[k] = lp_rgba(((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f, ((c >> 24) & 255) / 255.0f);
+        }
+        processing_graphics_update_region(_backend->graphics_id(), 0, (uint32_t)y0, (uint32_t)winWidth, (uint32_t)(y1 - y0 + 1), buf.data(), n);
+        if (const char* e = processing_check_error()) fprintf(stderr, "[libprocessing] updatePixels: %s\n", e);
+        if (snap) ::std::copy(pixels.begin() + (size_t)y0 * winWidth, pixels.begin() + (size_t)(y1 + 1) * winWidth, g_lpPixSnap.begin() + (size_t)y0 * winWidth);
+        else g_lpPixSnap.assign(pixels.begin(), pixels.begin() + total);
+        return;
+    }
+#endif
     ::std::vector<unsigned char> rgba(total * 4);
 
     // pixels[] is top-to-bottom; glDrawPixels expects bottom-to-top,
@@ -2962,6 +4411,7 @@ void PApplet::updatePixels() {
         }
     }
 #ifndef __EMSCRIPTEN__
+    glWindowPos2i(0, 0);  // cppmode-pimage-api: set() moves the raster position
     glDrawPixels(winWidth, winHeight, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
 #else
     GLuint tex; glGenTextures(1,&tex);
@@ -2980,13 +4430,61 @@ void PApplet::updatePixels() {
     glDisable(GL_TEXTURE_2D); glDeleteTextures(1,&tex);
 #endif
 }
+// cppmode-lpcopy: canvas pixels for get()/copy()/blend() in the libprocessing renderer
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+static bool cppmodeLpRead(PApplet* app, ::std::vector<unsigned int>& px, int& W, int& H, float& s) {
+    auto* be = static_cast<LibProcessingBackend*>(app->_backend);
+    if (!be->cpp_readback_argb(be->cpp_current_gid(), app->width, app->height, px, W, H)) return false;
+    s = app->width > 0 ? (float)W / (float)app->width : 1.0f;   // framebuffer pixels per sketch pixel
+    return W > 0 && H > 0;
+}
+static void cppmodeLpWrite(PApplet* app, const ::std::vector<unsigned int>& px) {
+    auto* be = static_cast<LibProcessingBackend*>(app->_backend);
+    be->cpp_update_argb(be->cpp_current_gid(), px);
+}
+// copy/blend a region of the canvas onto itself; replace=true is copy()
+static void cppmodeLpBlit(PApplet* app, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode, bool replace) {
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+    ::std::vector<unsigned int> px; int W = 0, H = 0; float s = 1;
+    if (!cppmodeLpRead(app, px, W, H, s)) return;
+    ::std::vector<unsigned int> out = px;
+    int X0 = (int)(dx * s), Y0 = (int)(dy * s), X1 = (int)((dx + dw) * s), Y1 = (int)((dy + dh) * s);
+    for (int Y = ::std::max(0, Y0); Y < ::std::min(H, Y1); Y++) {
+        int srcY = (int)((sy + (Y - Y0) / s * (float)sh / dh) * s);
+        if (srcY < 0 || srcY >= H) continue;
+        for (int X = ::std::max(0, X0); X < ::std::min(W, X1); X++) {
+            int srcX = (int)((sx + (X - X0) / s * (float)sw / dw) * s);
+            if (srcX < 0 || srcX >= W) continue;
+            unsigned int c = px[(size_t)srcY * W + srcX];
+            out[(size_t)Y * W + X] = replace ? c : blendColor(color(px[(size_t)Y * W + X]), color(c), mode).value;
+        }
+    }
+    cppmodeLpWrite(app, out);
+}
+#endif
 color PApplet::get(int x, int y) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-lpcopy
+        ::std::vector<unsigned int> px; int W = 0, H = 0; float s = 1;
+        if (x < 0 || y < 0 || x >= width || y >= height || !cppmodeLpRead(this, px, W, H, s)) return color(0u);
+        int X = ::std::min(W - 1, (int)(x * s)), Y = ::std::min(H - 1, (int)(y * s));
+        return color(px[(size_t)Y * W + X]);
+    }
+#endif
     unsigned char p[4];
     glReadPixels(x, winHeight - 1 - y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, p);
     return colorVal(p[0], p[1], p[2], p[3]);
 }
 
 void PApplet::set(int x, int y, color c) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-api3
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        unsigned int v = c.value;
+        processing_graphics_set(_backend->graphics_id(), (uint32_t)x, (uint32_t)y,
+            lp_rgba(((v >> 16) & 255) / 255.0f, ((v >> 8) & 255) / 255.0f, (v & 255) / 255.0f, ((v >> 24) & 255) / 255.0f));
+        return; }
+#endif
     unsigned int v = c.value;
     unsigned char p[] = {
         (unsigned char)((v >> 16) & 0xFF),  // R
@@ -3023,36 +4521,55 @@ void PApplet::set(int x, int y, color c) {
 // =============================================================================
 
 void PApplet::blendMode(int mode) {
-    glEnable(GL_BLEND);
-    // Reset equation first (SUBTRACT changes it)
-    glBlendEquation(GL_FUNC_ADD);
-    switch (mode) {
-        case BLEND:    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); break;
-        case ADD:      glBlendFunc(GL_SRC_ALPHA, GL_ONE);                break;
-        case MULTIPLY: glBlendFunc(GL_DST_COLOR, GL_ZERO);               break;
-        case SCREEN:   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR);      break;
-        case DARKEST:  glBlendFunc(GL_ONE, GL_ONE); glBlendEquation(GL_MIN); break;
-        case LIGHTEST: glBlendFunc(GL_ONE, GL_ONE); glBlendEquation(GL_MAX); break;
-        case DIFFERENCE:
-            glBlendEquation(GL_FUNC_SUBTRACT);
-            glBlendFunc(GL_ONE, GL_ONE);
-            break;
-        case SUBTRACT:
-            glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            break;
-        case REPLACE:  glBlendFunc(GL_ONE, GL_ZERO);                     break;
-        default:       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); break;
+    if (_backend) {
+        uint8_t lp = 0;
+        switch(mode) {
+            case BLEND:      lp=0; break;
+            case ADD:        lp=1; break;
+            case SUBTRACT:   lp=2; break;
+            case DARKEST:    lp=3; break;
+            case LIGHTEST:   lp=4; break;
+            case DIFFERENCE: lp=5; break;
+            case MULTIPLY:   lp=7; break;
+            case SCREEN:     lp=8; break;
+            case REPLACE:    lp=9; break;
+            default:         lp=0; break;
+        }
+        processing_set_blend_mode(_backend->graphics_id(), lp);
+        return;
     }
+    g_glBlendMode = mode;
+    glApplyBlend(mode);
 }
 
 void PApplet::clip(float x, float y, float w, float h) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-clip: the shader drops pixels outside this rect
+        float x1 = x, y1 = y, x2 = x + w, y2 = y + h;           // CORNER
+        if (currentImageMode == CORNERS)     { x2 = w; y2 = h; }
+        else if (currentImageMode == CENTER) { x1 = x - w / 2; y1 = y - h / 2; x2 = x + w / 2; y2 = y + h / 2; }
+        else if (currentImageMode == RADIUS) { x1 = x - w; y1 = y - h; x2 = x + w; y2 = y + h; }
+        if (x2 < x1) ::std::swap(x1, x2);
+        if (y2 < y1) ::std::swap(y1, y2);
+        // the window canvas is in framebuffer pixels (HiDPI), a createGraphics buffer is 1:1
+        float s = 1.0f;
+        auto* lb = static_cast<LibProcessingBackend*>(_backend);
+        if (!lb->_cpp_saved_gid && gWindow) {
+            int fw = 0, fh = 0, ww = 0, wh = 0;
+            glfwGetFramebufferSize(gWindow, &fw, &fh); glfwGetWindowSize(gWindow, &ww, &wh);
+            if (ww > 0) s = (float)fw / (float)ww;
+        }
+        processing_clip(_backend->graphics_id(), x1 * s, y1 * s, (x2 - x1) * s, (y2 - y1) * s);
+        return;
+    }
+#endif
     // Scissor coordinates are in GL space (Y=0 at bottom), so flip Y
     glEnable(GL_SCISSOR_TEST);
     glScissor((int)x, winHeight - (int)(y + h), (int)w, (int)h);
 }
 
 void PApplet::noClip() {
+    if (_backend) { processing_no_clip(_backend->graphics_id()); return; }  /* cppmode-clip */
     glDisable(GL_SCISSOR_TEST);
 }
 
@@ -3087,6 +4604,9 @@ void PApplet::saveFrame(const ::std::string& filename) {
     }
     return;
 #endif
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { cppmodeLpSaveFrame(this, filename); return; }  // cppmode-pg-offscreen
+#endif
     ::std::string fn = filename;
     size_t pos = fn.find("####");
     if (pos != ::std::string::npos) {
@@ -3108,11 +4628,10 @@ void PApplet::saveFrame(const ::std::string& filename) {
     if (ext == ".png")                ok = stbi_write_png(fn.c_str(), w, h, 3, px.data(), w*3);
     else if (ext == ".jpg" || ext == "jpeg") ok = stbi_write_jpg(fn.c_str(), w, h, 3, px.data(), 95);
     else if (ext == ".bmp")           ok = stbi_write_bmp(fn.c_str(), w, h, 3, px.data());
-    else if (ext == ".tga" || ext == ".tif" || ext == ".tiff")
-                                      ok = stbi_write_tga(fn.c_str(), w, h, 3, px.data());
+    else if (ext == ".tga" || ext == ".tif" || ext == "tiff")
+                                      ok = cppmodeWriteTgaOrTiff(fn.c_str(), ext, w, h, px.data());
     else { fn += ".png"; ok = stbi_write_png(fn.c_str(), w, h, 3, px.data(), w*3); }
-    if (ok) ::std::cout << "Saved: " << fn << "\n";
-    else    ::std::cout << "save: failed to write " << fn << "\n";
+    if (!ok) ::std::cerr << "saveFrame: could not write " << fn << "\n";  // cppmode-savefile: quiet on success, like Java
 }
 void PApplet::save(const ::std::string& fn){saveFrame(fn);}
 
@@ -3122,6 +4641,7 @@ void PApplet::save(const ::std::string& fn){saveFrame(fn);}
 
 static void cursor_pos_cb(GLFWwindow*, double x, double y) {
     auto* p = PApplet::g_papplet; if(!p) return;
+    if (p->_backend) p->_backend->input_mouse_move((float)x,(float)y);
     p->mouseInWindow = true;
     p->mouseDX += (float)x - p->mouseX;
     p->mouseDY += (float)y - p->mouseY;
@@ -3135,14 +4655,16 @@ static void cursor_pos_cb(GLFWwindow*, double x, double y) {
           (p->g_currentMods&GLFW_MOD_ALT)!=0,
           (p->g_currentMods&GLFW_MOD_SUPER)!=0);
       int act = p->_mousePressed ? MouseEvent::DRAG : MouseEvent::MOVE;
-      MouseEvent me2{p->mouseX, p->mouseY, p->mouseButton, 0, sh, ct, al, me, act};
-      if (p->_mousePressed) { p->mouseDragged(); p->mouseDragged(me2); }
+      MouseEvent me2{(float)p->mouseX, (float)p->mouseY, p->mouseButton, 0, sh, ct, al, me, act};
+      if (!p->_setupDone) return;  // cppmode-events: no sketch callbacks before setup() has run
+      if (p->_mousePressed) { p->mouseWasPressed = false; p->mouseDragged(); p->mouseDragged(me2); }  // a drag cancels mouseClicked
       else                  { p->mouseMoved();   p->mouseMoved(me2);   }
     }
 }
 static void mouse_btn_cb(GLFWwindow*, int btn, int action, int mods) {
     auto* p = PApplet::g_papplet; if(!p) return;
     p->g_currentMods = mods;
+    if (p->_backend) p->_backend->input_mouse_button((uint8_t)btn, action == GLFW_PRESS);
     if (action == GLFW_PRESS) {
         p->_mousePressed = true;
         if(btn>=0&&btn<8) p->mouseButtons[btn]=true;
@@ -3156,8 +4678,8 @@ static void mouse_btn_cb(GLFWwindow*, int btn, int action, int mods) {
           auto ct=(p->g_currentMods&GLFW_MOD_CONTROL)!=0;
           auto al=(p->g_currentMods&GLFW_MOD_ALT)!=0;
           auto me=(p->g_currentMods&GLFW_MOD_SUPER)!=0;
-          MouseEvent ev{p->mouseX, p->mouseY, p->mouseButton, 1, sh, ct, al, me, MouseEvent::PRESS};
-          p->mousePressed(); p->mousePressed(ev);
+          MouseEvent ev{(float)p->mouseX, (float)p->mouseY, p->mouseButton, 1, sh, ct, al, me, MouseEvent::PRESS};
+          if (p->_setupDone) { p->mousePressed(); p->mousePressed(ev); }  // cppmode-events
         }
         p->mouseWasPressed = true;
     } else if (action == GLFW_RELEASE) {
@@ -3174,32 +4696,35 @@ static void mouse_btn_cb(GLFWwindow*, int btn, int action, int mods) {
           auto ct=(p->g_currentMods&GLFW_MOD_CONTROL)!=0;
           auto al=(p->g_currentMods&GLFW_MOD_ALT)!=0;
           auto me=(p->g_currentMods&GLFW_MOD_SUPER)!=0;
-          MouseEvent ev{p->mouseX, p->mouseY, p->mouseButton, 1, sh, ct, al, me, MouseEvent::RELEASE};
-          p->mouseReleased(); p->mouseReleased(ev);
-          if(p->mouseWasPressed) {
-              MouseEvent ce{p->mouseX, p->mouseY, p->mouseButton, 1, sh, ct, al, me, MouseEvent::CLICK};
+          MouseEvent ev{(float)p->mouseX, (float)p->mouseY, p->mouseButton, 1, sh, ct, al, me, MouseEvent::RELEASE};
+          if (p->_setupDone) { p->mouseReleased(); p->mouseReleased(ev); }
+          if(p->mouseWasPressed && p->_setupDone) {
+              MouseEvent ce{(float)p->mouseX, (float)p->mouseY, p->mouseButton, 1, sh, ct, al, me, MouseEvent::CLICK};
               p->mouseClicked(); p->mouseClicked(ce);
           }
         }
         p->mouseWasPressed=false;
     }
 }
-static void scroll_cb(GLFWwindow*,double,double yoffset){
+static void scroll_cb(GLFWwindow*,double xoffset,double yoffset){
     auto* p = PApplet::g_papplet; if(!p) return;
-    int delta = (int)yoffset;
+    if (p->_backend) p->_backend->input_scroll((float)xoffset, (float)yoffset);
+    int delta = (int)-yoffset;  // cppmode-events: Java counts wheel-down as positive; GLFW is the opposite
+    if (!p->_setupDone) return;
     if(p->_onMouseWheel) p->_onMouseWheel(delta);
     p->mouseWheel(delta);
     { auto sh=(p->g_currentMods&GLFW_MOD_SHIFT)!=0;
       auto ct=(p->g_currentMods&GLFW_MOD_CONTROL)!=0;
       auto al=(p->g_currentMods&GLFW_MOD_ALT)!=0;
       auto me=(p->g_currentMods&GLFW_MOD_SUPER)!=0;
-      MouseEvent ev{p->mouseX, p->mouseY, p->mouseButton, delta, sh, ct, al, me, MouseEvent::WHEEL};
+      MouseEvent ev{(float)p->mouseX, (float)p->mouseY, p->mouseButton, delta, sh, ct, al, me, MouseEvent::WHEEL};
       p->mouseWheel(ev);
     }
 }
 
 static void char_cb(GLFWwindow*, unsigned int codepoint) {
     auto* p = PApplet::g_papplet; if(!p) return;
+    if (p->_backend) p->_backend->input_char(0, codepoint);
     // char_cb fires after key_cb for printable keys, with the correct
     // Unicode character (shift/caps/layout all applied).
     if (codepoint < 128) {
@@ -3209,11 +4734,11 @@ static void char_cb(GLFWwindow*, unsigned int codepoint) {
     if (p->g_pendingKeyPressed) {
         p->g_pendingKeyPressed = false;
         p->_eventDrewSomething=true;
-        p->keyPressed(); p->keyPressed(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::PRESS});
+        if (p->_setupDone) { p->keyPressed(); p->keyPressed(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::PRESS}); }
     }
     // keyTyped() -- Processing standard: only printable chars, no action keys
     // Action keys (Ctrl, Shift, Alt, etc.) never reach char_cb, so this is correct.
-    p->keyTyped(); p->keyTyped(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::TYPE});
+    if (p->_setupDone) { p->keyTyped(); p->keyTyped(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::TYPE}); }
 }
 
 // Translate GLFW key code to Java KeyEvent.VK_* value.
@@ -3347,6 +4872,7 @@ static void translate_glfw_key(int k, char16_t* outKey, int* outKeyCode) {
 static void key_cb(GLFWwindow* w, int k, int scancode, int action, int mods) {
     auto* p = PApplet::g_papplet; if(!p) return;
     p->g_currentMods = mods; // capture before callbacks fire
+    if (p->_backend) p->_backend->input_key((uint32_t)k, action != GLFW_RELEASE);
     if (action == GLFW_PRESS || action == GLFW_REPEAT) {
         if (action == GLFW_PRESS) s_pressedScancodes.insert(scancode);
         p->_keyPressed = true;
@@ -3411,7 +4937,7 @@ static void key_cb(GLFWwindow* w, int k, int scancode, int action, int mods) {
         // Fire keyPressed() now unless deferred to char_cb
         if (!p->g_pendingKeyPressed) {
             if(action==GLFW_PRESS) p->_eventDrewSomething=true;
-            p->keyPressed(); p->keyPressed(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::PRESS});
+            if (p->_setupDone) { p->keyPressed(); p->keyPressed(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::PRESS}); }
             // Java Processing: ESC closes the sketch unless keyPressed() set p->key=0
             if (p->key == (char16_t)27 && p->gWindow)
                 glfwSetWindowShouldClose(p->gWindow, GLFW_TRUE);
@@ -3434,7 +4960,7 @@ static void key_cb(GLFWwindow* w, int k, int scancode, int action, int mods) {
         char16_t relKey; int relKeyCode;
         translate_glfw_key(k, &relKey, &relKeyCode);
         p->key = relKey; p->keyCode = relKeyCode;
-        p->keyReleased(); p->keyReleased(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::RELEASE});
+        if (p->_setupDone) { p->keyReleased(); p->keyReleased(KeyEvent{p->key, p->keyCode, (p->g_currentMods&GLFW_MOD_SHIFT)!=0, (p->g_currentMods&GLFW_MOD_CONTROL)!=0, (p->g_currentMods&GLFW_MOD_ALT)!=0, (p->g_currentMods&GLFW_MOD_SUPER)!=0, KeyEvent::RELEASE}); }
     }
 }
 static void focus_cb(GLFWwindow*,int f){
@@ -3578,11 +5104,18 @@ void PApplet::run(){
     doTint=false;tintR=1;tintG=1;tintB=1;tintA=1;
     lightsEnabled=false;lightIndex=0;
     looping=true;
+    bgR=0.8f;bgG=0.8f;bgB=0.8f;bgA=1.0f;
+    bgR=0.8f;bgG=0.8f;bgB=0.8f;bgA=1.0f; // Processing default gray
 
     this->settings();
 
-    glfwWindowHint(GLFW_RESIZABLE,isResizable?GLFW_TRUE:GLFW_FALSE);
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+#else
     glfwWindowHint(GLFW_SAMPLES,4);
+    glfwWindowHint(GLFW_STENCIL_BITS,8);
+#endif
+    glfwWindowHint(GLFW_RESIZABLE,isResizable?GLFW_TRUE:GLFW_FALSE);
     glfwWindowHint(GLFW_STENCIL_BITS,8);
     gWindow=glfwCreateWindow(winWidth,winHeight,g_sketchName.c_str(),nullptr,nullptr);
     if(!gWindow){
@@ -3603,7 +5136,32 @@ void PApplet::run(){
         glfwTerminate();
         return;
     }
+    if (g_fullScreenPending) { g_fullScreenPending = false; cppmodeGoFullScreen(gWindow); }  // fullScreen() in settings()
     // Prevent freeze when dragging title bar on Windows
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    {
+        _backend = new LibProcessingBackend();
+        const char* wl = getenv("WAYLAND_DISPLAY");
+        if (wl && wl[0]) {
+            _backend->init((uint64_t)glfwGetWaylandWindow(gWindow),
+                           (uint64_t)glfwGetWaylandDisplay(),
+                           (uint32_t)winWidth,(uint32_t)winHeight,1.0f);
+        } else {
+            _backend->init((uint64_t)glfwGetX11Window(gWindow),
+                           (uint64_t)(uintptr_t)glfwGetX11Display(),
+                           (uint32_t)winWidth,(uint32_t)winHeight,1.0f);
+        }
+        // size() ran before the backend existed; apply P3D's camera now,
+        // before setup() so a camera() call there still wins
+        if (defaultP3D) {
+            processing_mode_3d(_backend->graphics_id());
+            camera();  // Java's default: eye at (width/2, height/2, cameraZ) looking at the middle
+            perspective();  // Java's default projection; Processing's y points down
+        }
+        if (g_lpMsaaWanted >= 0)  // smooth()/noSmooth() called before the window existed
+            processing_graphics_set_msaa(_backend->graphics_id(), (uint32_t)g_lpMsaaWanted);
+    }
+#endif
     glfwSetWindowRefreshCallback(gWindow,[](GLFWwindow* w){
         // Originally just glClear()+swap "to prevent freeze when dragging the
         // title bar on Windows" -- but this unconditionally WIPES the screen
@@ -3626,6 +5184,7 @@ void PApplet::run(){
         }
         glfwSwapBuffers(w);
     });
+#ifndef CPPMODE_BACKEND_LIBPROCESSING
     glfwMakeContextCurrent(gWindow);
     glewExperimental = GL_TRUE;
     GLenum glewErr = glewInit();
@@ -3646,7 +5205,9 @@ void PApplet::run(){
 #endif
         glfwDestroyWindow(gWindow); glfwTerminate(); return;
     }
+#endif
 
+#ifndef CPPMODE_BACKEND_LIBPROCESSING
     // Reset cached Phong shader so it recompiles fresh with current source
     if(phongProg){glDeleteProgram(phongProg);phongProg=0;}
     glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
@@ -3665,6 +5226,7 @@ void PApplet::run(){
     // preventing missed inputs on Windows where events can arrive between polls.
     glfwSetInputMode(gWindow, GLFW_STICKY_KEYS, GLFW_TRUE);
     glfwSetInputMode(gWindow, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
+#endif
     glfwSetCursorPosCallback(gWindow,   cursor_pos_cb);
     glfwSetMouseButtonCallback(gWindow, mouse_btn_cb);
     glfwSetScrollCallback(gWindow,      scroll_cb);
@@ -3792,7 +5354,7 @@ void PApplet::run(){
         } else {
             setProjection(logicalW, logicalH);
         }
-        ++frameCount; this->draw();
+        ++frameCount; { /* cppmode-measured-fps */ static auto _cppT = std::chrono::steady_clock::now(); auto _cppN = std::chrono::steady_clock::now(); double _cppD = std::chrono::duration<double>(_cppN - _cppT).count(); _cppT = _cppN; if (frameCount > 1 && _cppD > 0) { float _cppR = (float)(1.0 / _cppD); _frameRate = frameCount == 2 ? _cppR : _frameRate * 0.9f + _cppR * 0.1f; } }; this->draw();
                 mouseDX = 0; mouseDY = 0;  // reset delta each frame
         flushPoints(); // flush any pending points before swap
         saveToPersist(); // save back buffer before swap for next frame restore
@@ -3820,6 +5382,7 @@ void PApplet::run(){
     // Poll multiple times to flush it, then forcibly clear the close flag.
     for(int _flush=0; _flush<10; _flush++) glfwPollEvents();
     glfwSetWindowShouldClose(gWindow, GLFW_FALSE);
+    if (g_exitRequested) glfwSetWindowShouldClose(gWindow, GLFW_TRUE);  // exit() in setup()
     // For looping sketches: clear both buffers to bgColor so the
     // front-to-back blit starts from the correct background color.
     // For static sketches (noLoop): don't clear - preserve what this->setup() drew.
@@ -3832,7 +5395,7 @@ void PApplet::run(){
     }
 #endif
 #ifndef __EMSCRIPTEN__
-    while(!glfwWindowShouldClose(gWindow)){
+    while(!glfwWindowShouldClose(gWindow)&&(!_backend||!_backend->should_close())){
 
         if(looping||redrawOnce){
             redrawOnce=false;
@@ -3971,8 +5534,10 @@ void PApplet::run(){
                 doTint=false; tintR=1; tintG=1; tintB=1; tintA=1;
                 glGetError();
                 _backgroundCalledThisFrame = false;
-                ++frameCount; this->draw(); pmouseX=mouseX; pmouseY=mouseY; mouseDX=0; mouseDY=0;
-                glGetError(); // consume any GL errors
+                if (_backend) { lpLightsReset(_backend->graphics_id()); lpFrameGeosFree(); _backend->begin_draw(); }
+                ++frameCount; { /* cppmode-measured-fps */ static auto _cppT = std::chrono::steady_clock::now(); auto _cppN = std::chrono::steady_clock::now(); double _cppD = std::chrono::duration<double>(_cppN - _cppT).count(); _cppT = _cppN; if (frameCount > 1 && _cppD > 0) { float _cppR = (float)(1.0 / _cppD); _frameRate = frameCount == 2 ? _cppR : _frameRate * 0.9f + _cppR * 0.1f; } }; this->draw(); pmouseX=mouseX; pmouseY=mouseY; mouseDX=0; mouseDY=0;
+                if (_backend) _backend->end_draw();
+                else glGetError();
             }
 
             // Only save persist FBO if sketch uses persistence (no background() call)
@@ -3980,6 +5545,10 @@ void PApplet::run(){
             glfwSwapBuffers(gWindow);
         }
         glfwPollEvents();
+        if (PApplet::g_papplet && PApplet::g_papplet->_backend)
+            PApplet::g_papplet->_backend->input_flush();
+        cppmodeDeliverSelections();  // cppmode-select: finished file dialogs call their callback here
+        // end_draw() calls app.update() -- no separate poll_events() needed
         // Only re-save persist if an event callback drew something.
         // Checked via _eventDrewSomething flag set in keyPressed/mousePressed.
         if(persistFBO && _eventDrewSomething) { saveToPersist(); _eventDrewSomething=false; }
@@ -3987,7 +5556,7 @@ void PApplet::run(){
         // Frame timing -- matches Processing Java's model exactly:
         // sleep the remainder of the target frame time, then measure
         // the full wall-clock frame duration (draw + swap + sleep) and
-        // report it as _frameRate.
+        // report it as _targetFrameRate.
         auto now = ::std::chrono::steady_clock::now();
         double elapsed = ::std::chrono::duration<double>(now - last).count();
         double sl = targetFrameTime - elapsed;
@@ -4000,12 +5569,14 @@ void PApplet::run(){
         }
         auto frameEnd = ::std::chrono::steady_clock::now();
         double fullFrame = ::std::chrono::duration<double>(frameEnd - last).count();
-        if (fullFrame > 0) _frameRate = (float)(1.0 / fullFrame);
+        if (fullFrame > 0) _targetFrameRate = (float)(1.0 / fullFrame);
         deltaTime = (float)fullFrame;
         last = frameEnd;
     }
     if(phongProg){glDeleteProgram(phongProg);phongProg=0;}
-    glfwDestroyWindow(gWindow);gWindow=nullptr;glfwTerminate();
+    if (_backend) { delete _backend; _backend = nullptr; }
+    if(gWindow){glfwDestroyWindow(gWindow);gWindow=nullptr;}
+    glfwTerminate();
 #else
     emscripten_set_main_loop_arg([](void* arg){
         auto* p = static_cast<PApplet*>(arg);
@@ -4033,7 +5604,7 @@ void PApplet::run(){
             glDisable(GL_COLOR_MATERIAL);
             p->lightsEnabled=false; p->lightIndex=0;
             p->_backgroundCalledThisFrame=false;
-            ++p->frameCount;
+            ++p->frameCount; { /* cppmode-measured-fps */ static auto _cppT = std::chrono::steady_clock::now(); auto _cppN = std::chrono::steady_clock::now(); double _cppD = std::chrono::duration<double>(_cppN - _cppT).count(); _cppT = _cppN; if (p->frameCount > 1 && _cppD > 0) { float _cppR = (float)(1.0 / _cppD); p->_frameRate = p->frameCount == 2 ? _cppR : p->_frameRate * 0.9f + _cppR * 0.1f; } };
             p->draw();
             p->pmouseX=p->mouseX; p->pmouseY=p->mouseY;
             p->mouseDX=0; p->mouseDY=0;
@@ -4111,10 +5682,58 @@ void PGraphics::arc(float cx,float cy,float w,float h,float sa,float ea,int mode
 void PGraphics::blendMode(int mode)                    { if(PApplet::g_papplet) PApplet::g_papplet->blendMode(mode); }
 void PGraphics::clip(float x,float y,float w,float h)  { if(PApplet::g_papplet) PApplet::g_papplet->clip(x,y,w,h); }
 void PGraphics::noClip()                               { if(PApplet::g_papplet) PApplet::g_papplet->noClip(); }
-void PGraphics::loadPixels()                           { if(PApplet::g_papplet) PApplet::g_papplet->loadPixels(); }
-void PGraphics::updatePixels()                         { if(PApplet::g_papplet) PApplet::g_papplet->updatePixels(); }
-color PGraphics::get(int x,int y)                      { return PApplet::g_papplet ? PApplet::g_papplet->get(x,y) : color(0); }
-void PGraphics::set(int x,int y,color c)               { if(PApplet::g_papplet) PApplet::g_papplet->set(x,y,c); }
+// cppmode-pgpixels: in OpenGL these read and write the buffer's own framebuffer. They used
+// to go to the main canvas, so pg.loadPixels()/pg.get() returned the window's pixels.
+// libprocessing keeps the old routing (its beginDraw() swaps the canvas).
+static bool pgUseGl(PGraphics* g) { return PApplet::g_papplet && !PApplet::g_papplet->_backend && g->fbo && g->width > 0 && g->height > 0; }
+struct PgFboScope {
+    GLint prev = 0;
+    explicit PgFboScope(GLuint fbo) { glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev); glBindFramebuffer(GL_FRAMEBUFFER, fbo); }
+    ~PgFboScope() { glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev); }
+};
+static unsigned int pgArgb(const unsigned char* p) { return ((unsigned)p[3] << 24) | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) | p[2]; }
+void PGraphics::loadPixels() {
+    if (!pgUseGl(this)) { if(PApplet::g_papplet) PApplet::g_papplet->loadPixels(); return; }
+    ::std::vector<unsigned char> b((size_t)width * height * 4);
+    { PgFboScope s(fbo); glPixelStorei(GL_PACK_ALIGNMENT, 1); glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, b.data()); }
+    pixels.resize((size_t)width * height);
+    for (size_t i = 0; i < (size_t)width * height; i++)   // the buffer is drawn y-down, so row 0 is the top
+        pixels[i] = pgArgb(&b[i * 4]);
+}
+void PGraphics::updatePixels() {
+    if (!pgUseGl(this)) { if(PApplet::g_papplet) PApplet::g_papplet->updatePixels(); return; }
+    if ((int)pixels.size() < width * height) return;
+    ::std::vector<unsigned char> b((size_t)width * height * 4);
+    for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++) {
+            unsigned int v = pixels[(size_t)y * width + x]; unsigned char* p = &b[((size_t)y * width + x) * 4];
+            p[0] = (v >> 16) & 255; p[1] = (v >> 8) & 255; p[2] = v & 255; p[3] = (v >> 24) & 255;
+        }
+    PgFboScope s(fbo);
+    GLboolean bl = glIsEnabled(GL_BLEND), dt = glIsEnabled(GL_DEPTH_TEST);
+    glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); glWindowPos2i(0, 0);
+    glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, b.data());
+    if (bl) glEnable(GL_BLEND); if (dt) glEnable(GL_DEPTH_TEST);
+}
+color PGraphics::get(int x,int y) {
+    if (!pgUseGl(this)) return PApplet::g_papplet ? PApplet::g_papplet->get(x,y) : color(0);
+    if (x < 0 || y < 0 || x >= width || y >= height) return color(0);
+    unsigned char p[4] = {0, 0, 0, 0};
+    { PgFboScope s(fbo); glPixelStorei(GL_PACK_ALIGNMENT, 1); glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, p); }
+    color r; r.value = pgArgb(p); return r;
+}
+void PGraphics::set(int x,int y,color c) {
+    if (!pgUseGl(this)) { if(PApplet::g_papplet) PApplet::g_papplet->set(x,y,c); return; }
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    unsigned int v = c.value; unsigned char p[4] = {(unsigned char)((v >> 16) & 255), (unsigned char)((v >> 8) & 255), (unsigned char)(v & 255), (unsigned char)((v >> 24) & 255)};
+    PgFboScope s(fbo);
+    GLboolean bl = glIsEnabled(GL_BLEND); glDisable(GL_BLEND);
+    glWindowPos2i(x, y); glDrawPixels(1, 1, GL_RGBA, GL_UNSIGNED_BYTE, p);
+    if (bl) glEnable(GL_BLEND);
+}
+PImage* PGraphics::get(int x, int y, int w, int h) { loadPixels(); return PImage::get(x, y, w, h); }
+PImage* PGraphics::get() { loadPixels(); return PImage::get(0, 0, width, height); }
 
 // =============================================================================
 // JSON IMPLEMENTATION
@@ -4137,8 +5756,8 @@ static ::std::string parseString(const ::std::string& s, size_t& i){
     return r;
 }
 static JSONValue parseJSONValue(const ::std::string& s, size_t& i);
-static JSONObject parseJSONObj(const ::std::string& s, size_t& i){
-    JSONObject obj; i++;
+static JSONObjectMap parseJSONObj(const ::std::string& s, size_t& i){
+    JSONObjectMap obj; i++;
     skipWS(s,i);
     while(i<s.size()&&s[i]!='}'){
         skipWS(s,i); if(s[i]!='"')break;
@@ -4152,8 +5771,8 @@ static JSONObject parseJSONObj(const ::std::string& s, size_t& i){
     if(i<s.size())i++;
     return obj;
 }
-static JSONArray parseJSONArr(const ::std::string& s, size_t& i){
-    JSONArray arr; i++;
+static JSONArrayVec parseJSONArr(const ::std::string& s, size_t& i){
+    JSONArrayVec arr; i++;
     skipWS(s,i);
     while(i<s.size()&&s[i]!=']'){
         skipWS(s,i);
@@ -4180,8 +5799,9 @@ static JSONValue parseJSONValue(const ::std::string& s, size_t& i){
         if(s[i]=='.'||s[i]=='e'||s[i]=='E')isFloat=true; i++;
     }
     ::std::string num=s.substr(start,i-start);
-    if(isFloat) return JSONValue(::std::stod(num));
-    return JSONValue(::std::stoi(num));
+    double d=0; try { d=::std::stod(num); } catch(...) { return JSONValue(); }  // cppmode-json: bad numbers no longer throw
+    if(isFloat || d>2147483647.0 || d<-2147483648.0) return JSONValue(d);
+    return JSONValue((int)d);
 }
 
 JSONValue PApplet::parseJSON(const ::std::string& src){ size_t i=0; return parseJSONValue(src,i); }
@@ -4194,7 +5814,11 @@ JSONValue PApplet::parseJSON(const ::std::string& src){ size_t i=0; return parse
         case JSONValue::BOOL_T:   return v.b?"true":"false";
         case JSONValue::INT_T:    return ::std::to_string((int)v.n);
         case JSONValue::FLOAT_T:  { ::std::ostringstream ss; ss<<v.n; return ss.str(); }
-        case JSONValue::STRING_T: return "\""+v.s+"\"";
+        case JSONValue::STRING_T: {  // cppmode-json: escape quotes, backslashes and control characters
+            ::std::string r="\""; for(unsigned char ch : v.s){
+                if(ch=='"') r+="\\\""; else if(ch=='\\') r+="\\\\"; else if(ch=='\n') r+="\\n"; else if(ch=='\r') r+="\\r"; else if(ch=='\t') r+="\\t";
+                else if(ch<0x20){ char u[8]; snprintf(u,sizeof u,"\\u%04x",ch); r+=u; } else r+=(char)ch; }
+            return r+"\""; }
         case JSONValue::ARRAY_T: {
             if(v.arr->empty())return "[]";
             ::std::string r="[\n";
@@ -4218,6 +5842,15 @@ JSONValue PApplet::parseJSON(const ::std::string& src){ size_t i=0; return parse
         }
     }
     return "null";
+}
+
+::std::string JSONValue::toString() const { return PApplet::toJSONString(*this, 0); }
+::std::string JSONValue::format(int indent) const {
+    if (indent >= 0) return PApplet::toJSONString(*this, 0);
+    ::std::string s = PApplet::toJSONString(*this, 0), r; bool inStr = false, esc = false;  // one line: drop layout whitespace outside strings
+    for (char ch : s) { if (inStr) { r += ch; if (esc) esc = false; else if (ch == '\\') esc = true; else if (ch == '"') inStr = false; }
+                        else if (ch == '"') { inStr = true; r += ch; } else if (ch != '\n' && ch != ' ') r += ch; }
+    return r;
 }
 
 static ::std::string readFileString(const ::std::string& path){
@@ -4292,30 +5925,44 @@ bool PApplet::saveXML(const ::std::string& path,const XML& x){ ::std::ofstream f
 // TABLE IMPLEMENTATION
 // =============================================================================
 
+// cppmode-table: CSV fields can be quoted ("a, b" and "" for a quote), like Java reads and writes them
+static ::std::vector<::std::string> cppmodeSplitCsv(const ::std::string& line, char d) {
+    ::std::vector<::std::string> out; ::std::string cur; bool q=false;
+    for (size_t i=0;i<line.size();i++) { char ch=line[i];
+        if (q) { if (ch=='"') { if (i+1<line.size()&&line[i+1]=='"') { cur+='"'; i++; } else q=false; } else cur+=ch; }
+        else if (ch=='"') q=true; else if (ch==d) { out.push_back(cur); cur.clear(); } else if (ch!='\r') cur+=ch; }
+    out.push_back(cur); return out;
+}
+static ::std::string cppmodeCsvField(const ::std::string& s, char d) {
+    if (s.find(d)==::std::string::npos && s.find('"')==::std::string::npos && s.find('\n')==::std::string::npos) return s;
+    ::std::string r="\""; for (char ch : s) { if (ch=='"') r+="\"\""; else r+=ch; } return r+"\"";
+}
 Table* PApplet::loadTable(const ::std::string& path,const ::std::string& options){
     Table* t=new Table();
     bool hasHeader=options.find("header")!=::std::string::npos;
-    char delim=path.find(".tsv")!=::std::string::npos?'\t':',';
+    char delim=(path.find(".tsv")!=::std::string::npos||options.find("tsv")!=::std::string::npos)?'\t':',';
     auto lines=loadStrings(path);
     if(lines.empty())return t;
     int start=0;
     if(hasHeader){
-        auto cols=split(lines[0],delim);
-        for(auto& c:cols)t->addColumn(c);
+        for(auto& c:cppmodeSplitCsv(lines[0],delim))t->addColumn(c);
         start=1;
     }
     for(int i=start;i<(int)lines.size();i++){
-        auto& row=t->addRow();
-        auto cells=split(lines[i],delim);
-        for(int j=0;j<(int)cells.size()&&j<(int)row.size();j++)row[j]=cells[j];
+        if(lines[i].empty()&&i==(int)lines.size()-1) break;
+        auto cells=cppmodeSplitCsv(lines[i],delim);
+        while(t->getColumnCount()<(int)cells.size()) t->addColumn("");
+        auto& row=t->addRowCells();
+        for(int j=0;j<(int)cells.size();j++)row[j]=cells[j];
     }
     return t;
 }
 bool PApplet::saveTable(const ::std::string& path,const Table& t,const ::std::string& ext){
     ::std::ofstream f(path);if(!f)return false;
-    char delim=ext=="tsv"?'\t':',';
-    if(!t.columns.empty()){for(size_t i=0;i<t.columns.size();i++){if(i)f<<delim;f<<t.columns[i];}f<<"\n";}
-    for(auto& row:t.rows){for(size_t i=0;i<row.size();i++){if(i)f<<delim;f<<row[i];}f<<"\n";}
+    char delim=(ext=="tsv"||path.find(".tsv")!=::std::string::npos)?'\t':',';
+    bool named=false; for(auto& c:t.columns) if(!c.empty()) named=true;
+    if(named){for(size_t i=0;i<t.columns.size();i++){if(i)f<<delim;f<<cppmodeCsvField(t.columns[i],delim);}f<<"\n";}
+    for(auto& row:t.rowData){for(size_t i=0;i<row.size();i++){if(i)f<<delim;f<<cppmodeCsvField(row[i],delim);}f<<"\n";}
     return true;
 }
 
@@ -4324,20 +5971,29 @@ bool PApplet::saveTable(const ::std::string& path,const Table& t,const ::std::st
 // =============================================================================
 void PApplet::shapeMode(int mode){ shapeDrawMode=mode; }
 PShape PApplet::createShape(int kind){ return PShape(kind); }
-PShape PApplet::createShape(int kind, float a, float b, float c, float d){
-    // createShape(RECT/ELLIPSE/LINE/POINT, x, y, w, h)
+// cppmode-pshapeprim: primitives keep kind + numbers, drawn by drawPShape through
+// rect(), ellipse(), arc() and friends, so both renderers draw them
+PShape PApplet::makePrimShape(int kind, ::std::vector<float> p) {
     PShape s(kind);
-    s.beginShape();
-    if(kind==ELLIPSE||kind==RECT) {
-        s.params = {a,b,c,d};
-    } else if(kind==LINE) {
-        s.vertex(a,b); s.vertex(c,d);
-    } else if(kind==POINT) {
-        s.vertex(a,b);
-    }
-    s.endShape();
+    s.prim = kind;
+    s.params = ::std::move(p);
+    // like Java, a primitive takes the sketch's fill and stroke when it is created
+    s.hasFill = doFill;   s.fillR = fillR; s.fillG = fillG; s.fillB = fillB; s.fillA = fillA;
+    s.hasStroke = doStroke; s.strokeR = strokeR; s.strokeG = strokeG; s.strokeB = strokeB; s.strokeA = strokeA;
+    s.strokeW = strokeW;
+    s.styleEnabled = true;
     return s;
 }
+PShape PApplet::createShape(int kind, float a, float b, float c, float d) { return makePrimShape(kind, {a, b, c, d}); }
+PShape PApplet::createShape(int kind, float a) { return makePrimShape(kind, {a}); }
+PShape PApplet::createShape(int kind, float a, float b) { return makePrimShape(kind, {a, b}); }
+PShape PApplet::createShape(int kind, float a, float b, float c) { return makePrimShape(kind, {a, b, c}); }
+PShape PApplet::createShape(int kind, float a, float b, float c, float d, float e, float f) {
+    return makePrimShape(kind, {a, b, c, d, e, f}); }
+PShape PApplet::createShape(int kind, float a, float b, float c, float d, float e, float f, float g) {
+    return makePrimShape(kind, {a, b, c, d, e, f, g}); }
+PShape PApplet::createShape(int kind, float a, float b, float c, float d, float e, float f, float g, float hh) {
+    return makePrimShape(kind, {a, b, c, d, e, f, g, hh}); }
 
 // ── Minimal SVG loader ────────────────────────────────────────────────────────
 // Parses basic SVG shapes (path, rect, circle, ellipse, polygon, polyline, line)
@@ -4696,6 +6352,9 @@ struct ObjVertex {
 };
 
 // Parse MTL file, return map of material name -> texture PImage*
+// cppmode-pshapeobj: under libprocessing there is no GL context, so an OBJ material's
+// texture is kept as a file path under a placeholder id instead of a GL texture
+static ::std::unordered_map<GLuint, ::std::string> g_objTexPath;
 static ::std::unordered_map<::std::string,GLuint> objLoadMtl(const ::std::string& mtlPath){
     ::std::unordered_map<::std::string,GLuint> mats;
     ::std::ifstream f(mtlPath);
@@ -4718,6 +6377,12 @@ static ::std::unordered_map<::std::string,GLuint> objLoadMtl(const ::std::string
                 int w2,h2,ch;
                 unsigned char* d=stbi_load(t.c_str(),&w2,&h2,&ch,4);
                 if(d){
+                    if (PApplet::g_papplet && PApplet::g_papplet->_backend) {  // cppmode-pshapeobj
+                        static GLuint s_nextId = 0x70000000u;
+                        GLuint id = ++s_nextId;
+                        g_objTexPath[id] = t; mats[curMat] = id;
+                        stbi_image_free(d); break;
+                    }
                     GLuint tex;
                     glGenTextures(1,&tex);
                     glBindTexture(GL_TEXTURE_2D,tex);
@@ -4874,6 +6539,118 @@ PShape* PApplet::loadShape(const ::std::string& path){
 
 void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool parentStyleEnabled){
     if(!s.visible)return;
+    if (s.prim) {  // cppmode-pshapeprim
+        bool se = s.styleEnabled && parentStyleEnabled;
+        pushMatrix();
+        translate(x, y);
+        if (s.hasMtx) { if (_backend) _backend->apply_matrix(s.mtx); else glMultMatrixf(s.mtx); }
+        pushStyle();
+        if (se) {
+            colorMode(RGB, 1, 1, 1, 1);
+            if (s.hasFill) fill(s.fillR, s.fillG, s.fillB, s.fillA); else noFill();
+            if (s.hasStroke) { stroke(s.strokeR, s.strokeG, s.strokeB, s.strokeA); strokeWeight(s.strokeW); } else noStroke();
+        }
+        rectMode(CORNER); ellipseMode(CENTER);
+        const auto& p = s.params;
+        auto P = [&](size_t i) { return i < p.size() ? p[i] : 0.0f; };
+        switch (s.prim) {
+            case RECT:     rect(P(0), P(1), P(2), P(3)); break;
+            case ELLIPSE:  ellipse(P(0), P(1), P(2), P(3)); break;
+            case ARC:      if (p.size() >= 7) arc(P(0), P(1), P(2), P(3), P(4), P(5), (int)P(6));
+                           else arc(P(0), P(1), P(2), P(3), P(4), P(5)); break;
+            case TRIANGLE: triangle(P(0), P(1), P(2), P(3), P(4), P(5)); break;
+            case QUAD:     quad(P(0), P(1), P(2), P(3), P(4), P(5), P(6), P(7)); break;
+            case LINE:     line(P(0), P(1), P(2), P(3)); break;
+            case POINT:    point(P(0), P(1)); break;
+            case BOX:      if (p.size() >= 3) box(P(0), P(1), P(2)); else box(P(0)); break;
+            case SPHERE:   sphere(P(0)); break;
+            default: break;
+        }
+        popStyle();
+        popMatrix();
+        return;
+    }
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-pshape: replay through the drawing calls libprocessing already handles
+        bool se = s.styleEnabled && parentStyleEnabled;
+        pushMatrix();
+        translate(x, y);
+        if (w > 0 && h > 0) {
+            // root of a loaded SVG keeps its viewBox in verts[0]
+            float vbW = 1, vbH = 1;
+            if (!s.verts.empty() && !s.children.empty() && s.verts[0].z == 0) { vbW = s.verts[0].x; vbH = s.verts[0].y; }
+            if (vbW > 1) scale(w / vbW, h / vbH);
+            else if (s.width > 0 && s.height > 0) scale(w / s.width, h / s.height);  // cppmode-pshapesize
+        }
+        if (s.hasMtx) _backend->apply_matrix(s.mtx);  // cppmode-pshapematrix
+        for (auto& c : s.children) drawPShape(c, 0, 0, -1, -1, se);
+        int n = (int)s.verts.size();
+        bool isMesh = (s.kind == TRIANGLES);
+        if (n >= (isMesh ? 3 : 2)) {
+            // the shape's own style when it has one; the sketch's style comes back after
+            float sf[4] = {fillR, fillG, fillB, fillA}, ss[4] = {strokeR, strokeG, strokeB, strokeA}, sw = strokeW;
+            bool sdf = doFill, sds = doStroke;
+            auto apply = [&]() {
+                if (doFill) { _backend->fill(fillR, fillG, fillB, fillA); lpLitFillChanged(fillR, fillG, fillB, fillA); }
+                else _backend->no_fill();
+                if (doStroke) { _backend->stroke(strokeR, strokeG, strokeB, strokeA); _backend->stroke_weight(strokeW); }
+                else _backend->no_stroke();
+            };
+            if (se) {
+                doFill = s.hasFill; doStroke = s.hasStroke;
+                fillR = s.fillR; fillG = s.fillG; fillB = s.fillB; fillA = s.fillA;
+                strokeR = s.strokeR; strokeG = s.strokeG; strokeB = s.strokeB; strokeA = s.strokeA; strokeW = s.strokeW;
+            }
+            if (isMesh) doStroke = false;  // OBJ meshes draw no outline, like the OpenGL path
+            apply();
+            if (isMesh) {
+                // cppmode-pshapeobj: the OBJ's own normals (smooth shading) and texture
+                const PShape* normStore = nullptr;
+                for (auto& c2 : s.children) if (c2.kind == -999) { normStore = &c2; break; }
+                PImage* tex = nullptr;
+                if (s.texId) {
+                    auto it = g_objTexPath.find(s.texId);
+                    if (it != g_objTexPath.end()) {
+                        static ::std::unordered_map<::std::string, PImage*> s_objTex;
+                        auto ti = s_objTex.find(it->second);
+                        if (ti == s_objTex.end()) ti = s_objTex.emplace(it->second, loadImage(it->second)).first;
+                        tex = ti->second;
+                        if (tex && tex->width <= 0) tex = nullptr;
+                    }
+                }
+                int savedTexMode = textureModeVal;
+                beginShape(TRIANGLES);
+                if (tex) { textureMode(NORMAL); texture(*tex); }
+                for (int vi = 0; vi < n; vi++) {
+                    if (normStore && vi < (int)normStore->verts.size())
+                        normal(normStore->verts[vi].x, normStore->verts[vi].y, normStore->verts[vi].z);
+                    const auto& v = s.verts[vi];
+                    if (tex) vertex(v.x, v.y, v.z, v.u, v.v); else vertex(v.x, v.y, v.z);
+                }
+                endShape();
+                textureMode(savedTexMode);
+            } else {
+                // first subpath is the shape, the rest are contours: islands and holes both work
+                ::std::vector<int> starts = s.subpathStarts;
+                if (starts.empty() || starts[0] != 0) starts.insert(starts.begin(), 0);
+                beginShape();
+                for (size_t si = 0; si < starts.size(); si++) {
+                    int from = starts[si], to = si + 1 < starts.size() ? starts[si + 1] : n;
+                    if (si > 0) beginContour();
+                    for (int vi = from; vi < to; vi++) vertex(s.verts[vi].x, s.verts[vi].y, s.verts[vi].z);
+                    if (si > 0) endContour();
+                }
+                if (s.closed) endShape(CLOSE); else endShape();
+            }
+            fillR = sf[0]; fillG = sf[1]; fillB = sf[2]; fillA = sf[3];
+            strokeR = ss[0]; strokeG = ss[1]; strokeB = ss[2]; strokeA = ss[3]; strokeW = sw;
+            doFill = sdf; doStroke = sds;
+            apply();
+        }
+        popMatrix();
+        return;
+    }
+#endif
     bool se = s.styleEnabled && parentStyleEnabled;
     glPushMatrix();
     glTranslatef(x,y,0);
@@ -4884,8 +6661,10 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
             vbW=s.verts[0].x; vbH=s.verts[0].y;
         }
         if(vbW>1) glScalef(w/vbW,h/vbH,1);
-        else      glScalef(w,h,1);
+        // cppmode-pshapesize: like Java, the shape ends up w x h, so scale by w / width
+        else if(s.width>0&&s.height>0) glScalef(w/s.width,h/s.height,1);
     }
+    if(s.hasMtx) glMultMatrixf(s.mtx);  // cppmode-pshapematrix
     for(auto& c:s.children) drawPShape(c,0,0,-1,-1,se);
     if(!s.verts.empty()){
         bool useFill   = se ? s.hasFill  : doFill;
@@ -4925,7 +6704,7 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
                 if(hasTex){glDisable(GL_TEXTURE_2D);glBindTexture(GL_TEXTURE_2D,0);}
             } else {
             glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+            glApplyBlend(g_glBlendMode);
             // Use stencil with evenodd rule -- draw each closed subpath separately
             // so multiple subpaths (e.g. Michigan's two peninsulas) each fill correctly
             glEnable(GL_STENCIL_TEST);
@@ -4989,17 +6768,27 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
     }
     glPopMatrix();
 }
-void PApplet::shape(const PShape& s,float x,float y)          { drawPShape(s,x,y); }
-void PApplet::shape(const PShape& s,float x,float y,float w,float h){ drawPShape(s,x,y,w,h); }
+// cppmode-shapemode: Java's shapeMode() for where and how big shape() draws
+void PApplet::shape(const PShape& s,float x,float y) {
+    if (shapeDrawMode == CENTER) { x -= s.width * 0.5f; y -= s.height * 0.5f; }
+    drawPShape(s, x, y);
+}
+void PApplet::shape(const PShape& s,float x,float y,float w,float h) {
+    if (shapeDrawMode == CORNERS)     { w -= x; h -= y; }
+    else if (shapeDrawMode == CENTER) { x -= w * 0.5f; y -= h * 0.5f; }
+    drawPShape(s, x, y, w, h);
+}
 
 // =============================================================================
 // PFONT / TYPOGRAPHY
 // =============================================================================
 // Internal helper -- try to load a TTF by path
+static ::std::string g_lastTTFPath;   // file behind the active OpenGL font
 bool PApplet::tryLoadTTF(const ::std::string& path, float size) {
 #if PROCESSING_HAS_STB_TRUETYPE
     if (loadTTFFile(path)) {
         g_ttf.loaded = true;
+        g_lastTTFPath = path;
         g_textSize   = size;
         // bakeAtlas deferred to first text() call — GL context not ready yet
         g_ttf.bakeSize = -1.0f; // force bake on next text() call
@@ -5064,6 +6853,35 @@ PFont* PApplet::createFont(const ::std::string& name, float size, bool /*smooth*
         ::std::string("/System/Library/Fonts/") + name,
     };
 
+    // cppmode-fontname: ask fontconfig for an installed font by name, the way Java finds
+    // system fonts ("DejaVu Sans", "DejaVu Sans Bold", "Arial"). fc-match always answers
+    // with *some* font, so only take it when its family or full name is what was asked.
+    #ifndef _WIN32
+    {
+        auto norm = [](::std::string s) { ::std::string o; for (char c : s) if (c != ' ' && c != '-' && c != '_') o += (char)tolower((unsigned char)c); return o; };
+        auto fcmatch = [&](const ::std::string& pattern) -> ::std::string {
+            ::std::string q; for (char c : pattern) { if (c == '\'') q += "'\\''"; else q += c; }
+            FILE* p = processingOpenPipe(("fc-match -f '%{family}|%{fullname}|%{file}' '" + q + "' 2>/dev/null").c_str(), "r");
+            if (!p) return "";
+            char buf[1024]; ::std::string out; while (fgets(buf, sizeof buf, p)) out += buf;
+            processingClosePipe(p);
+            size_t a = out.find('|'), b = out.find('|', a == ::std::string::npos ? 0 : a + 1);
+            if (a == ::std::string::npos || b == ::std::string::npos) return "";
+            ::std::string fams = out.substr(0, a) + "," + out.substr(a + 1, b - a - 1) + ",", file = out.substr(b + 1);
+            while (!file.empty() && (file.back() == '\n' || file.back() == '\r')) file.pop_back();
+            ::std::string want = norm(nameNoExt);
+            for (size_t s = 0, e; (e = fams.find(',', s)) != ::std::string::npos; s = e + 1)
+                if (norm(fams.substr(s, e - s)) == want) return file;
+            return "";
+        };
+        ::std::string hit = fcmatch(nameNoExt);
+        if (hit.empty()) {  // "DejaVu Sans Bold" -> family "DejaVu Sans", style "Bold"
+            size_t sp = nameNoExt.find_last_of(" -");
+            if (sp != ::std::string::npos) hit = fcmatch(nameNoExt.substr(0, sp) + ":style=" + nameNoExt.substr(sp + 1));
+        }
+        if (!hit.empty()) paths.insert(paths.begin(), hit);
+    }
+    #endif
     // Also search system font dirs recursively (Linux: fc-list output)
     #ifndef _WIN32
     {
@@ -5091,6 +6909,7 @@ PFont* PApplet::createFont(const ::std::string& name, float size, bool /*smooth*
     for (auto& p : paths) {
         if (tryLoadTTF(p, size)) { found = true; break; }
     }
+    if (found) { f.path = g_lastTTFPath; f.loaded = true; }
     if (!found) {
         ::std::cerr << "[font] Could not find font: " << name << "\n";
         ::std::cerr << "[font] Put the .ttf file in your sketch's data/ folder\n";
@@ -5101,14 +6920,17 @@ PFont* PApplet::createFont(const ::std::string& name, float size, bool /*smooth*
 // textFont -- switch to a previously loaded font
 void PApplet::textFont(const PFont& font) {
     currentFont = font;
-    g_textSize  = font.size;
-    tryLoadTTF(font.name, font.size);
+    const ::std::string& fp = font.path.empty() ? font.name : font.path;
+    tryLoadTTF(fp, font.size);
+    if (_backend) _backend->text_font_file(fp);
+    textSize(font.size);   // also resets leading, as in Java
 }
 void PApplet::textFont(const PFont& font, float size) {
     currentFont      = font;
     currentFont.size = size;
     g_textSize       = size;
-    tryLoadTTF(font.name, size);
+    tryLoadTTF(font.path.empty() ? font.name : font.path, size);
+    if (_backend) { _backend->text_font_file(font.path.empty() ? font.name : font.path); _backend->text_size(size); }
 }
 
 // =============================================================================
@@ -5117,11 +6939,35 @@ void PApplet::textFont(const PFont& font, float size) {
 void PApplet::textureMode(int mode){ textureModeVal=mode; }
 void PApplet::textureWrap(int mode){
     textureWrapVal=mode;
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){ uint8_t w = mode == REPEAT ? 1 : 0; if (g_lpTexImg) processing_image_set_sampler(g_lpTexImg, 0, w, w); return; }
+#endif
     GLint wrap=mode==REPEAT?GL_REPEAT:GL_CLAMP_TO_EDGE;
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,wrap);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,wrap);
 }
 void PApplet::texture(PImage& img){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if(_backend){
+        bool fresh = !img.lp_image_id || img.dirty;
+        if (!lpEnsureImage(_backend, &img)) { g_lpTexImg = 0; return; }
+        g_lpTexImg = img.lp_image_id;
+        g_lpTexW = img.width > 0 ? (float)img.width : 1.0f;
+        g_lpTexH = img.height > 0 ? (float)img.height : 1.0f;
+        if (fresh) {
+            uint8_t w = textureWrapVal == REPEAT ? 1 : 0;
+            processing_image_set_sampler(g_lpTexImg, 0, w, w);
+        }
+        static ::std::map<uint64_t, bool> alphaOf;
+        auto it = alphaOf.find(g_lpTexImg);
+        if (it == alphaOf.end()) {
+            bool a = false;
+            for (unsigned int c : img.pixels) if ((c >> 24) != 0xff) { a = true; break; }
+            it = alphaOf.emplace(g_lpTexImg, a).first;
+        }
+        g_lpTexAlpha = it->second;
+        return; }
+#endif
     if(img.dirty)img.uploadTexture();
     if(img.texID){ glEnable(GL_TEXTURE_2D);glBindTexture(GL_TEXTURE_2D,img.texID); }
 }
@@ -5133,32 +6979,82 @@ void PApplet::texture(PImage& img){
 BufferedReader* PApplet::createReader(const ::std::string& path){ return new BufferedReader(path); }
 PrintWriter* PApplet::createWriter(const ::std::string& path){ return new PrintWriter(path); }
 
-::std::string PApplet::selectInput(const ::std::string& prompt,const ::std::string&){
-#ifdef __EMSCRIPTEN__
-    (void)prompt; return "";
+// cppmode-select: native file dialogs. Linux: zenity, then kdialog. macOS: osascript.
+// Windows: PowerShell + Windows Forms. Returns false when cancelled or no dialog tool exists.
+bool File::exists() const { struct stat st; return !path.empty() && stat(path.c_str(), &st) == 0; }
+bool File::isDirectory() const { struct stat st; return !path.empty() && stat(path.c_str(), &st) == 0 && (st.st_mode & S_IFDIR); }
+static ::std::string cppmodeShellQuote(const ::std::string& s) {
+#ifdef _WIN32
+    ::std::string r = "'"; for (char ch : s) { if (ch == '\'') r += "''"; else if (ch == '"') r += "`\""; else r += ch; } return r + "'";
+#else
+    ::std::string r = "'"; for (char ch : s) { if (ch == '\'') r += "'\\''"; else r += ch; } return r + "'";
 #endif
-    ::std::string cmd="zenity --file-selection --title=\""+prompt+"\" 2>/dev/null";
-    FILE* p=processingOpenPipe(cmd.c_str(),"r"); if(!p)return "";
-    char buf[4096]=""; fgets(buf,sizeof(buf),p); processingClosePipe(p);
-    ::std::string r(buf); if(!r.empty()&&r.back()=='\n')r.pop_back(); return r;
 }
-::std::string PApplet::selectOutput(const ::std::string& prompt,const ::std::string&){
-#ifdef __EMSCRIPTEN__
-    (void)prompt; return "";
-#endif
-    ::std::string cmd="zenity --file-selection --save --title=\""+prompt+"\" 2>/dev/null";
-    FILE* p=processingOpenPipe(cmd.c_str(),"r"); if(!p)return "";
-    char buf[4096]=""; fgets(buf,sizeof(buf),p); processingClosePipe(p);
-    ::std::string r(buf); if(!r.empty()&&r.back()=='\n')r.pop_back(); return r;
+static bool cppmodeRunDialog(const ::std::string& cmd, ::std::string& out) {
+    FILE* p = processingOpenPipe(cmd.c_str(), "r"); if (!p) return false;
+    char buf[4096]; ::std::string r;
+    while (fgets(buf, sizeof buf, p)) r += buf;
+    int rc = processingClosePipe(p);
+    while (!r.empty() && (r.back() == '\n' || r.back() == '\r')) r.pop_back();
+    out = r;
+    return rc == 0 && !r.empty();
 }
-::std::string PApplet::selectFolder(const ::std::string& prompt){
+// kind: 0 open file, 1 save file, 2 folder
+static bool cppmodeChoose(int kind, const ::std::string& prompt, ::std::string& out) {
 #ifdef __EMSCRIPTEN__
-    (void)prompt; return "";
+    (void)kind; (void)prompt; (void)out; return false;
+#elif defined(_WIN32)
+    ::std::string ps;
+    if (kind == 2) ps = "Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description=" + cppmodeShellQuote(prompt) + "; if($d.ShowDialog() -eq 'OK'){$d.SelectedPath}";
+    else ps = ::std::string("Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.") + (kind == 1 ? "SaveFileDialog" : "OpenFileDialog") + "; $d.Title=" + cppmodeShellQuote(prompt) + "; if($d.ShowDialog() -eq 'OK'){$d.FileName}";
+    return cppmodeRunDialog("powershell -NoProfile -STA -Command \"" + ps + "\"", out);
+#elif defined(__APPLE__)
+    ::std::string as = kind == 2 ? "choose folder" : kind == 1 ? "choose file name" : "choose file";
+    ::std::string pr = prompt; for (auto& ch : pr) if (ch == '"') ch = '\'';
+    if (!pr.empty()) as += " with prompt \"" + pr + "\"";
+    return cppmodeRunDialog("osascript -e " + cppmodeShellQuote("POSIX path of (" + as + ")") + " 2>/dev/null", out);
+#else
+    ::std::string t = cppmodeShellQuote(prompt.empty() ? ::std::string("Select") : prompt);
+    ::std::string z = ::std::string("zenity --file-selection") + (kind == 1 ? " --save --confirm-overwrite" : kind == 2 ? " --directory" : "") + " --title=" + t + " 2>/dev/null";
+    if (cppmodeRunDialog("command -v zenity >/dev/null 2>&1 && " + z, out)) return true;
+    ::std::string k = ::std::string("kdialog ") + (kind == 1 ? "--getsavefilename ." : kind == 2 ? "--getexistingdirectory ." : "--getopenfilename .") + " --title " + t + " 2>/dev/null";
+    return cppmodeRunDialog("command -v kdialog >/dev/null 2>&1 && " + k, out);
 #endif
-    ::std::string cmd="zenity --file-selection --directory --title=\""+prompt+"\" 2>/dev/null";
-    FILE* p=processingOpenPipe(cmd.c_str(),"r"); if(!p)return "";
-    char buf[4096]=""; fgets(buf,sizeof(buf),p); processingClosePipe(p);
-    ::std::string r(buf); if(!r.empty()&&r.back()=='\n')r.pop_back(); return r;
+}
+static bool cppmodeIsCallbackName(const ::std::string& s) {
+    if (s.empty() || !(::std::isalpha((unsigned char)s[0]) || s[0] == '_')) return false;
+    for (char ch : s) if (!(::std::isalnum((unsigned char)ch) || ch == '_')) return false;
+    return true;
+}
+struct CppmodeSelection { bool folder; ::std::string path; };
+static ::std::mutex g_selMutex;
+static ::std::vector<CppmodeSelection> g_selDone;
+static void cppmodeSelectAsync(int kind, const ::std::string& prompt) {
+    ::std::thread([kind, prompt] {
+        ::std::string p; if (!cppmodeChoose(kind, prompt, p)) p.clear();
+        ::std::lock_guard<::std::mutex> l(g_selMutex); g_selDone.push_back({kind == 2, p});
+    }).detach();
+}
+void PApplet::cppmodeDeliverSelections() {
+    ::std::vector<CppmodeSelection> done;
+    { ::std::lock_guard<::std::mutex> l(g_selMutex); done.swap(g_selDone); }
+    for (auto& s : done) {
+        File f(s.path);
+        if (s.folder) { folderSelected(f); folderSelected(s.path.empty() ? nullptr : &f); }
+        else          { fileSelected(f);   fileSelected(s.path.empty() ? nullptr : &f); }
+    }
+}
+::std::string PApplet::selectInput(const ::std::string& prompt, const ::std::string& cb) {
+    if (cppmodeIsCallbackName(cb)) { cppmodeSelectAsync(0, prompt); return ""; }
+    ::std::string p; return cppmodeChoose(0, prompt, p) ? p : "";
+}
+::std::string PApplet::selectOutput(const ::std::string& prompt, const ::std::string& cb) {
+    if (cppmodeIsCallbackName(cb)) { cppmodeSelectAsync(1, prompt); return ""; }
+    ::std::string p; return cppmodeChoose(1, prompt, p) ? p : "";
+}
+::std::string PApplet::selectFolder(const ::std::string& prompt, const ::std::string& cb) {
+    if (cppmodeIsCallbackName(cb)) { cppmodeSelectAsync(2, prompt); return ""; }
+    ::std::string p; return cppmodeChoose(2, prompt, p) ? p : "";
 }
 
 PImage* PApplet::requestImage(const ::std::string& path){
@@ -5242,12 +7138,75 @@ PImage* PApplet::requestImage(const ::std::string& path){
 // PSHADER IMPLEMENTATION
 // =============================================================================
 
+// cppmode-lpshader: shaders in the libprocessing renderer. libprocessing takes WGSL/WESL, not GLSL:
+// uniforms are fields of a uniform struct and set() goes by field name.
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+bool PShader::lpSetF(const ::std::string& n, int count, float x, float y, float z, float w) {
+    uint64_t target = lp_filter ? lp_filter : lp_material;
+    if (!target) return false;
+    switch (count) {
+        case 1: processing_shader_set_float(target, n.c_str(), x); break;
+        case 2: processing_shader_set_vec2(target, n.c_str(), x, y); break;
+        case 3: processing_shader_set_vec3(target, n.c_str(), x, y, z); break;
+        default: processing_shader_set_vec4(target, n.c_str(), x, y, z, w); break;
+    }
+    if (const char* e = processing_check_error()) fprintf(stderr, "PShader.set(\"%s\"): %s\n", n.c_str(), e);
+    return true;
+}
+bool PShader::lpSetI(const ::std::string& n, int v) {
+    uint64_t target = lp_filter ? lp_filter : lp_material;
+    if (!target) return false;
+    processing_shader_set_int(target, n.c_str(), v);
+    if (const char* e = processing_check_error()) fprintf(stderr, "PShader.set(\"%s\"): %s\n", n.c_str(), e);
+    return true;
+}
+static PShader* cppmodeLpLoadShader(const ::std::string& fragPath) {
+    // try name.wesl / name.wgsl in data/ and the sketch folder; a .glsl/.frag name maps to the same base
+    ::std::string base = fragPath;
+    for (const char* ext : {".glsl", ".frag", ".fs", ".wesl", ".wgsl"}) {
+        size_t n = ::std::strlen(ext);
+        if (base.size() > n && base.compare(base.size() - n, n, ext) == 0) { base = base.substr(0, base.size() - n); break; }
+    }
+    const char* sp = getenv("PROCESSING_SKETCH_PATH");
+    ::std::string root = (sp && sp[0]) ? ::std::string(sp) + "/" : ::std::string();
+    ::std::vector<::std::string> tries;
+    bool wgslName = fragPath.size() > 5 && (fragPath.compare(fragPath.size() - 5, 5, ".wesl") == 0 || fragPath.compare(fragPath.size() - 5, 5, ".wgsl") == 0);
+    if (wgslName) { tries.push_back("data/" + fragPath); tries.push_back(fragPath); }
+    for (const char* ext : {".wesl", ".wgsl"}) { tries.push_back("data/" + base + ext); tries.push_back(base + ext); }
+    ::std::string rel, src;
+    for (auto& t : tries) {
+        ::std::string full = (!t.empty() && t[0] == '/') ? t : root + t;
+        ::std::ifstream f(full);
+        if (f) { rel = t; src.assign(::std::istreambuf_iterator<char>(f), ::std::istreambuf_iterator<char>()); break; }
+    }
+    PShader* s = new PShader();
+    if (rel.empty()) {
+        fprintf(stderr, "loadShader(\"%s\"): the libprocessing renderer uses WGSL/WESL shaders, not GLSL.\n"
+                        "  Put a %s.wesl (or .wgsl) in the sketch's data/ folder, or switch the renderer to OpenGL.\n",
+                fragPath.c_str(), base.c_str());
+        return s;
+    }
+    s->lp_shader = processing_shader_create(src.c_str());  // source, not path: the fork has no asset root here
+    if (const char* e = processing_check_error()) { fprintf(stderr, "loadShader(\"%s\"): %s\n", rel.c_str(), e); s->lp_shader = 0; return s; }
+    if (src.find("processing::filter") != ::std::string::npos) s->lp_filter = processing_filter_create(s->lp_shader);
+    else s->lp_material = processing_material_create_custom(s->lp_shader);
+    if (const char* e = processing_check_error()) fprintf(stderr, "loadShader(\"%s\"): %s\n", rel.c_str(), e);
+    return s;
+}
+#else
+bool PShader::lpSetF(const ::std::string&, int, float, float, float, float) { return false; }
+bool PShader::lpSetI(const ::std::string&, int) { return false; }
+#endif
+
 static ::std::string readShaderFile(const ::std::string& path){
     ::std::ifstream f(path); if(!f)return "";
     return ::std::string((::std::istreambuf_iterator<char>(f)),::std::istreambuf_iterator<char>());
 }
 
 PShader* PApplet::loadShader(const ::std::string& fragPath,const ::std::string& vertPath){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { (void)vertPath; return cppmodeLpLoadShader(fragPath); }  // cppmode-lpshader
+#endif
     ::std::string fSrc=readShaderFile(fragPath);
     ::std::string vSrc=vertPath.empty()?
         "#version 120\nvoid main(){gl_Position=ftransform();gl_TexCoord[0]=gl_MultiTexCoord0;gl_FrontColor=gl_Color;}":
@@ -5257,14 +7216,42 @@ PShader* PApplet::loadShader(const ::std::string& fragPath,const ::std::string& 
     s->compile();
     return s;
 }
-void PApplet::shader(PShader& s){ s.bind(); activeShader=&s; }
-void PApplet::resetShader(){ glUseProgram(0); activeShader=nullptr; }
+void PApplet::shader(PShader& s){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {  // cppmode-lpshader
+        if (s.lp_material) processing_material(_backend->graphics_id(), s.lp_material);
+        else if (s.lp_filter) fprintf(stderr, "shader(): that's a filter shader (processing::filter), use filter(shader) instead\n");
+        activeShader = &s; return;
+    }
+#endif
+    s.bind(); activeShader=&s; }
+void PApplet::resetShader(){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { processing_reset_material(_backend->graphics_id()); activeShader = nullptr; return; }  // cppmode-lpshader
+#endif
+    glUseProgram(0); activeShader=nullptr; }
+void PApplet::filter(PShader& s){  // cppmode-lpshader
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) {
+        if (!s.lp_filter) { fprintf(stderr, "filter(shader): not a filter shader (it needs import processing::filter)\n"); return; }
+        processing_graphics_apply_filter(_backend->graphics_id(), s.lp_filter);
+        if (const char* e = processing_check_error()) fprintf(stderr, "filter(shader): %s\n", e);
+        return;
+    }
+#endif
+    static bool warned = false;
+    if (!warned) { fprintf(stderr, "filter(shader) works in the libprocessing renderer for now\n"); warned = true; }
+    (void)s;
+}
 
 // =============================================================================
 // DISPLAY blend() and copy()
 // =============================================================================
 
 void PApplet::blend(int sx,int sy,int sw,int sh,int dx,int dy,int dw,int dh,int mode){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { cppmodeLpBlit(this, sx, sy, sw, sh, dx, dy, dw, dh, mode, false); return; }  // cppmode-lpcopy
+#endif
     ::std::vector<unsigned char> src(sw*sh*4);
     glReadPixels(sx,winHeight-(sy+sh),sw,sh,GL_RGBA,GL_UNSIGNED_BYTE,src.data());
     ::std::vector<unsigned char> dst(dw*dh*4);
@@ -5285,6 +7272,9 @@ void PApplet::blend(int sx,int sy,int sw,int sh,int dx,int dy,int dw,int dh,int 
 }
 
 void PApplet::copy(int sx,int sy,int sw,int sh,int dx,int dy,int dw,int dh){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (_backend) { cppmodeLpBlit(this, sx, sy, sw, sh, dx, dy, dw, dh, BLEND, true); return; }  // cppmode-lpcopy: copy replaces, like Java
+#endif
     blend(sx,sy,sw,sh,dx,dy,dw,dh,BLEND);
 }
 
@@ -5293,6 +7283,19 @@ void PApplet::copy(int sx,int sy,int sw,int sh,int dx,int dy,int dw,int dh){
 // =============================================================================
 
 PImage getRegion(int x,int y,int w,int h){
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (PApplet::g_papplet && PApplet::g_papplet->_backend) {  // cppmode-lpcopy
+        PImage img(w > 0 ? w : 1, h > 0 ? h : 1);
+        ::std::vector<unsigned int> px; int W = 0, H = 0; float s = 1;
+        if (w <= 0 || h <= 0 || !cppmodeLpRead(PApplet::g_papplet, px, W, H, s)) return img;
+        for (int iy = 0; iy < h; iy++) for (int ix = 0; ix < w; ix++) {
+            int X = (int)((x + ix) * s), Y = (int)((y + iy) * s);
+            img.pixels[(size_t)iy * w + ix] = (X >= 0 && Y >= 0 && X < W && Y < H) ? px[(size_t)Y * W + X] : 0u;
+        }
+        img.dirty = true;
+        return img;
+    }
+#endif
     PImage img(w,h);
     ::std::vector<unsigned char> buf(w*h*4);
     glReadPixels(x,(PApplet::g_papplet?PApplet::g_papplet->winHeight:0)-(y+h),w,h,GL_RGBA,GL_UNSIGNED_BYTE,buf.data());

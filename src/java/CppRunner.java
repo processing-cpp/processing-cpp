@@ -1,5 +1,7 @@
 package processing.mode.cpp;
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import processing.app.RunnerListener;
 public class CppRunner {
   private final File           binary;
@@ -64,6 +66,10 @@ public class CppRunner {
         pb.environment().put("PROCESSING_SKETCH_NAME", sketchFolder.getName());
         pb.environment().put("PROCESSING_SKETCH_PATH",
             sketchFolder.getAbsolutePath().replace('\\', '/'));
+        System.err.println("[CppRunner] SKETCH_PATH=" + sketchFolder.getAbsolutePath());
+        // Copy sketch assets (root + data/) to binary dir so loadImage finds them
+        File binaryDir = binary.getParentFile();
+        copySketchAssets(sketchFolder, binaryDir);
         // Pass mode src/ dir so Processing.cpp can find fonts
         if (runtimeDir != null)
           // Pass the mode root (parent of src/) so fonts/ subdir is reachable
@@ -96,5 +102,40 @@ public class CppRunner {
       while ((line = br.readLine()) != null)
         out.println(line);
     } catch (IOException ignored) {}
+  }
+  /** Copy sketch assets into sketchFolder/assets/ so Bevy's asset server finds them. */
+  private static void copySketchAssets(File sketchFolder, File destDir) {
+    // Bevy looks for assets in ./assets/ relative to the working dir (sketchFolder).
+    // Copy sketch root files and data/ contents into sketchFolder/assets/.
+    File assetsDir = new File(sketchFolder, "assets");
+    assetsDir.mkdirs();
+    // Copy files in sketch root
+    File[] rootFiles = sketchFolder.listFiles();
+    if (rootFiles != null) {
+      for (File f : rootFiles) {
+        if (f.isFile() && !f.getName().endsWith(".pde") && !f.getName().endsWith(".cpp")
+            && !f.getName().endsWith(".h") && !f.getName().endsWith(".o")) {
+          try {
+            Files.copy(f.toPath(), new File(assetsDir, f.getName()).toPath(),
+                StandardCopyOption.REPLACE_EXISTING);
+          } catch (IOException e) { /* ignore */ }
+        }
+      }
+    }
+    // Copy data/ contents into assets/ too
+    File dataDir = new File(sketchFolder, "data");
+    if (dataDir.isDirectory()) {
+      File[] dataFiles = dataDir.listFiles();
+      if (dataFiles != null) {
+        for (File f : dataFiles) {
+          if (f.isFile()) {
+            try {
+              Files.copy(f.toPath(), new File(assetsDir, f.getName()).toPath(),
+                  StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) { /* ignore */ }
+          }
+        }
+      }
+    }
   }
 }

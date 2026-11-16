@@ -1,4 +1,10 @@
 #pragma once
+#include <charconv>
+#include <cmath>
+// Backend abstraction -- included unconditionally so PApplet always has the ptr.
+// The ptr is null when no backend is active (OpenGL path).
+#include "ProcessingBackend.h"
+
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable: 4365)
@@ -145,6 +151,9 @@ inline ::std::string operator+(size_t n, const ::std::string& s) { return ::std:
 inline ::std::string operator+(float n,  const ::std::string& s) { return ::std::to_string(n) + s; }
 inline ::std::string operator+(double n, const ::std::string& s) { return ::std::to_string(n) + s; }
 inline ::std::string operator+(char c,   const ::std::string& s) { return ::std::string(1, c) + s; }
+#ifndef CALLBACK
+#define CALLBACK
+#endif
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
@@ -553,8 +562,9 @@ public:
     int  width  = 0;
     int  height = 0;
     ::std::vector<unsigned int> pixels;
-    GLuint texID = 0;
-    bool   dirty = false;
+    GLuint   texID       = 0;
+    uint64_t lp_image_id = 0;  // libprocessing backend image handle
+    bool     dirty       = false;
 
     PImage() = default;
     PImage(int w, int h) {
@@ -587,7 +597,30 @@ public:
     // Upload CPU pixels to the GPU texture
     void uploadTexture(); // defined in Processing.cpp
 
-    void resize(int w, int h) { width=w; height=h; pixels.assign(static_cast<size_t>(w) * static_cast<size_t>(h), 0xFF000000u); dirty=true; }
+    // cppmode-pimage-api: Java's resize() scales the picture (it used to wipe it to black),
+    // and a 0 for one side keeps the aspect ratio
+    void resize(int w, int h) {
+        if (w <= 0 && h <= 0) return;
+        if (w <= 0) w = width  > 0 && height > 0 ? (int)((float)width * h / height + 0.5f) : h;
+        if (h <= 0) h = height > 0 && width  > 0 ? (int)((float)height * w / width + 0.5f) : w;
+        ::std::vector<unsigned int> out(static_cast<size_t>(w) * static_cast<size_t>(h), 0xFF000000u);
+        if (width > 0 && height > 0 && (int)pixels.size() >= width * height) {
+            for (int y = 0; y < h; y++) {
+                float fy = (y + 0.5f) * height / h - 0.5f; int y0 = fy < 0 ? 0 : (int)fy; int y1 = y0 + 1 < height ? y0 + 1 : y0; float ty = fy - y0; if (ty < 0) ty = 0;
+                for (int x = 0; x < w; x++) {
+                    float fx = (x + 0.5f) * width / w - 0.5f; int x0 = fx < 0 ? 0 : (int)fx; int x1 = x0 + 1 < width ? x0 + 1 : x0; float tx = fx - x0; if (tx < 0) tx = 0;
+                    unsigned int c00 = pixels[(size_t)y0*width+x0], c10 = pixels[(size_t)y0*width+x1], c01 = pixels[(size_t)y1*width+x0], c11 = pixels[(size_t)y1*width+x1];
+                    unsigned int r = 0;
+                    for (int s = 0; s < 32; s += 8) {
+                        float a = ((c00>>s)&255)*(1-tx) + ((c10>>s)&255)*tx, b = ((c01>>s)&255)*(1-tx) + ((c11>>s)&255)*tx;
+                        r |= (unsigned int)(a*(1-ty) + b*ty + 0.5f) << s;
+                    }
+                    out[(size_t)y*w+x] = r;
+                }
+            }
+        }
+        width = w; height = h; pixels.swap(out); dirty = true;
+    }
 
     // Apply an image filter to all pixels. Mirrors Java's filter(int kind)
     // -- fills in the same per-mode defaults Java uses when no level is
@@ -658,13 +691,17 @@ public:
     }
 
     // Extract a sub-image
-    PImage get(int x, int y, int w, int h) const {
-        PImage out(w, h);
+    // cppmode-pimage-api: images are pointers in CppMode, so these hand back a new PImage*
+    // like createImage(); the by-value versions could never be stored (E0002)
+    PImage* get(int x, int y, int w, int h) const {
+        PImage* out = new PImage(w, h);
         for (int iy=0; iy<h; iy++)
             for (int ix=0; ix<w; ix++)
-                out.pixels[static_cast<size_t>(iy) * static_cast<size_t>(w) + static_cast<size_t>(ix)] = get(x+ix, y+iy);
+                out->pixels[static_cast<size_t>(iy) * static_cast<size_t>(w) + static_cast<size_t>(ix)] = get(x+ix, y+iy);
+        out->format = format; out->dirty = true;
         return out;
     }
+    PImage* get() const { return copy(); }
 
     // Duplicate the whole image into a new, independent PImage -- mirrors
     // Java's PImage.copy() (equivalent to Java's now-deprecated no-arg
@@ -672,9 +709,9 @@ public:
     // move constructor below (NRVO, or implicit move-on-return for a
     // named local going out of scope) -- the deleted copy constructor
     // just above is never invoked here.
-    PImage copy() const {
-        PImage out(width, height);
-        out.pixels = pixels;
+    PImage* copy() const {
+        PImage* out = new PImage(width, height);
+        out->pixels = pixels; out->format = format; out->dirty = true;
         return out;
     }
 
@@ -796,11 +833,16 @@ public:
 
 struct color;  // forward declaration -- full definition follows PApplet
 
+class PGraphics;
+// cppmode-pg-offscreen: libprocessing renderer hooks (return false in the OpenGL build)
+bool cppmodeLpBeginDraw(PGraphics* pg);
+bool cppmodeLpEndDraw(PGraphics* pg);
 class PGraphics : public PImage {
 public:
     GLuint fbo = 0; // framebuffer object
     GLuint rbo = 0; // renderbuffer (depth+stencil)
     bool   active = false;
+    bool   _savedMainLights = false; int _savedMainLightIndex = 0;  // cppmode-pgpixels
 
     // Independent per-buffer style state. Real Processing's PGraphics has
     // its OWN fill/stroke/text/etc. settings, completely separate from the
@@ -865,6 +907,7 @@ public:
     GLuint msaaDepthRbo = 0;
     int    samples = 0; // 0 = no multisampling
     bool   is3D = false; // true if created via createGraphics(w,h,P3D)
+    uint64_t lp_surface = 0, lp_graphics = 0;  // cppmode-pg-offscreen: libprocessing offscreen canvas
 
     PGraphics() = default;
 
@@ -876,6 +919,11 @@ public:
         // forward-reference gap. A sketch wanting a different level for
         // its buffers can extend this later if needed.
         samples = 0; // TEMPORARY: forced off to test if MSAA itself is the bug
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+        // cppmode-pgctor: libprocessing has no GL context, so the GL entry points are
+        // null and calling them crashes; beginDraw() makes an offscreen surface instead
+        if (!glGenFramebuffers) return;
+#endif
 
         // Resolve target: plain, non-multisampled FBO + texture --
         // unchanged from before, just filled via a blit-resolve now.
@@ -928,7 +976,8 @@ public:
     GLint savedViewport[4] = {};
     void beginDraw(); // defined after PApplet (needs its complete type for style swap)
     void _endDrawImpl(); // body of endDraw(), out-of-line for the same reason
-    void endDraw() { _endDrawImpl(); }
+    void endDraw() { if (cppmodeLpEndDraw(this)) return; _endDrawImpl(); }
+    void save(const ::std::string& filename);  // cppmode-pg-v5: writes this buffer to an image file
 
     // Drawing methods forwarded to Processing -- implemented after full decls
     void background(float g); void background(float r, float g, float b); void background(float r, float g, float b, float a);
@@ -1021,6 +1070,8 @@ public:
     void background(color c);
     color get(int x, int y);
     void set(int x, int y, color c);
+    PImage* get(int x, int y, int w, int h);  // cppmode-pgpixels: this buffer's pixels, not the main canvas
+    PImage* get();
 
 
 
@@ -1531,19 +1582,60 @@ inline color color_(float r, float g, float b, float a){ return colorVal((int)r,
 // PRINT / OUTPUT
 // =============================================================================
 
-template<typename T> inline void print(const T& v)    { ::std::cout << v; ::std::cout.flush(); }
-template<typename T> inline void println(const T& v)  { ::std::cout << v << "\n"; ::std::cout.flush(); }
-inline                       void println()             { ::std::cout << "\n"; ::std::cout.flush(); }
-template<typename T> inline void printArray(const ::std::vector<T>& a) {
-    for (size_t i=0; i<a.size(); i++) ::std::cout << "[" << i << "] " << a[i] << "\n";
+// cppmode-print: print like Java. Floats keep their decimal point (1.0, not 1), use the
+// shortest digits that read back the same (0.1, not 0.100000001), and switch to E notation
+// outside 1e-3..1e7 like Float.toString; bools print true/false; color prints its int value;
+// PVector prints [ x, y, z ]; arrays print like printArray(); println(a, b, c) separates with spaces.
+inline ::std::string cppmodeJavaFloat(double v, bool isFloat) {
+    if (::std::isnan(v)) return "NaN";
+    if (::std::isinf(v)) return v > 0 ? "Infinity" : "-Infinity";
+    if (v == 0) return ::std::signbit(v) ? "-0.0" : "0.0";
+    char buf[64]; ::std::to_chars_result r;
+    double a = ::std::fabs(v);
+    bool sci = a < 1e-3 || a >= 1e7;
+    if (isFloat) r = ::std::to_chars(buf, buf + sizeof buf, (float)v, sci ? ::std::chars_format::scientific : ::std::chars_format::fixed);
+    else         r = ::std::to_chars(buf, buf + sizeof buf, v,        sci ? ::std::chars_format::scientific : ::std::chars_format::fixed);
+    ::std::string s(buf, r.ptr);
+    if (!sci) { if (s.find('.') == ::std::string::npos) s += ".0"; return s; }
+    size_t e = s.find('e'); ::std::string m = s.substr(0, e); int ex = ::std::atoi(s.c_str() + e + 1);
+    if (m.find('.') == ::std::string::npos) m += ".0";
+    return m + "E" + ::std::to_string(ex);
 }
+template<typename T> struct cppmodeIsVector : ::std::false_type {};
+template<typename T, typename A> struct cppmodeIsVector<::std::vector<T, A>> : ::std::true_type {};
+template<typename T> inline void cppmodeWrite(::std::ostream& o, const T& v);
+template<typename T> inline void cppmodeWriteArray(::std::ostream& o, const ::std::vector<T>& a) {
+    for (size_t i = 0; i < a.size(); i++) { o << "[" << i << "] "; cppmodeWrite(o, a[i]); o << "\n"; }
+}
+template<typename T> inline void cppmodeWrite(::std::ostream& o, const T& v) {
+    if constexpr (::std::is_same_v<T, bool>) o << (v ? "true" : "false");
+    else if constexpr (::std::is_same_v<T, char16_t>) o << (char)v;
+    else if constexpr (::std::is_same_v<T, float>) o << cppmodeJavaFloat(v, true);
+    else if constexpr (::std::is_same_v<T, double>) o << cppmodeJavaFloat(v, false);
+    else if constexpr (::std::is_same_v<T, color>) o << (int)v.value;
+    else if constexpr (::std::is_same_v<T, PVector>) o << "[ " << cppmodeJavaFloat(v.x, true) << ", " << cppmodeJavaFloat(v.y, true) << ", " << cppmodeJavaFloat(v.z, true) << " ]";
+    else if constexpr (cppmodeIsVector<T>::value) cppmodeWriteArray(o, v);
+    else o << v;
+}
+template<typename T> inline ::std::string cppmodeToString(const T& v) { ::std::ostringstream o; cppmodeWrite(o, v); return o.str(); }
+template<typename T> inline void print(const T& v)    { cppmodeWrite(::std::cout, v); ::std::cout.flush(); }
+template<typename T> inline void println(const T& v)  {
+    cppmodeWrite(::std::cout, v);
+    if constexpr (!cppmodeIsVector<T>::value) ::std::cout << "\n";
+    ::std::cout.flush(); }
+inline                       void println()             { ::std::cout << "\n"; ::std::cout.flush(); }
+template<typename A, typename B, typename... R> inline void print(const A& a, const B& b, const R&... r) {
+    cppmodeWrite(::std::cout, a); ::std::cout << " "; print(b, r...); }
+template<typename A, typename B, typename... R> inline void println(const A& a, const B& b, const R&... r) {
+    print(a, b, r...); ::std::cout << "\n"; ::std::cout.flush(); }
+template<typename T> inline void printArray(const ::std::vector<T>& a) { cppmodeWriteArray(::std::cout, a); ::std::cout.flush(); }
 
 // =============================================================================
 // STRING UTILITIES
 // =============================================================================
 
 inline ::std::string str(int v)   { return ::std::to_string(v); }
-inline ::std::string str(float v) { return ::std::to_string(v); }
+inline ::std::string str(float v) { return cppmodeJavaFloat(v, true); }  // cppmode-print: 1.0, like Java
 // double overload -- without this, any expression that promotes to double
 // (e.g. a literal like 180.0 or 3.14159 anywhere in the expression, or a
 // <cmath> function like atan2()/sqrt() that returns double) makes str(...)
@@ -1553,7 +1645,7 @@ inline ::std::string str(float v) { return ::std::to_string(v); }
 // same default 6-decimal-place formatting as ::std::to_string(float), so
 // this doesn't introduce any visible precision/formatting mismatch with
 // str(float).
-inline ::std::string str(double v) { return ::std::to_string(v); }
+inline ::std::string str(double v) { return cppmodeJavaFloat(v, false); }
 inline ::std::string str(bool v)  { return v ? "true" : "false"; }
 inline ::std::string str(char v)  { return ::std::string(1, v); }
 // char16_t overload -- matches Java's actual "char" type for key/keyTyped
@@ -1565,6 +1657,37 @@ inline ::std::string str(char v)  { return ::std::string(1, v); }
 // CODED's own doc comment, "key will be CODED"), so this just produces
 // SOME single-character output for it rather than special-casing it.
 inline ::std::string str(char16_t v)  { return ::std::string(1, (char)v); }
+inline ::std::string str(unsigned int v) { return ::std::to_string(v); }
+using boolean = bool;   // Java type name
+inline ::std::string str(long v) { return ::std::to_string(v); }
+// Java-style "text" + number (CppMode wraps text literals next to + as std::string)
+inline ::std::string cppmodeJavaNum(double v, bool isFloat) {
+    if (v != v) return "NaN";
+    if (v == HUGE_VAL) return "Infinity";
+    if (v == -HUGE_VAL) return "-Infinity";
+    char buf[64];
+    auto r = isFloat ? ::std::to_chars(buf, buf + sizeof buf, (float)v) : ::std::to_chars(buf, buf + sizeof buf, v);
+    ::std::string s(buf, r.ptr);
+    if (s.find_first_of(".eEn") == ::std::string::npos) s += ".0";
+    return s;
+}
+#define CPPMODE_STR_PLUS(T, CONV) \
+    inline ::std::string operator+(const ::std::string& s, T v) { return s + (CONV); } \
+    inline ::std::string operator+(T v, const ::std::string& s) { return (CONV) + s; }
+CPPMODE_STR_PLUS(int, ::std::to_string(v))
+CPPMODE_STR_PLUS(long, ::std::to_string(v))
+CPPMODE_STR_PLUS(long long, ::std::to_string(v))
+CPPMODE_STR_PLUS(unsigned, ::std::to_string(v))
+CPPMODE_STR_PLUS(unsigned long, ::std::to_string(v))
+CPPMODE_STR_PLUS(unsigned long long, ::std::to_string(v))
+CPPMODE_STR_PLUS(float, cppmodeJavaNum(v, true))
+CPPMODE_STR_PLUS(double, cppmodeJavaNum(v, false))
+CPPMODE_STR_PLUS(bool, ::std::string(v ? "true" : "false"))
+CPPMODE_STR_PLUS(char16_t, ::std::string(1, (char)v))
+#undef CPPMODE_STR_PLUS
+inline ::std::string str(unsigned long v) { return ::std::to_string(v); }
+inline ::std::string str(long long v) { return ::std::to_string(v); }
+inline ::std::string str(unsigned long long v) { return ::std::to_string(v); }
 inline bool        toBoolean(const ::std::string& s)  { return s=="true"||s=="1"||s=="yes"; }
 inline int         toInt(const ::std::string& s)      { return ::std::stoi(s); }
 inline float       toFloat(const ::std::string& s)    { try { return ::std::stof(s); } catch (...) { return 0.0f; } }
@@ -2094,24 +2217,47 @@ inline void delay(int ms) { ::std::this_thread::sleep_for(::std::chrono::millise
 // JSON
 // =============================================================================
 
-struct JSONValue;
-using JSONObject = ::std::map<::std::string, JSONValue>;
-using JSONArray  = ::std::vector<JSONValue>;
+// cppmode-json: JSONObject and JSONArray are real types with Java's methods. They used to be
+// plain std::map / std::vector, so  JSONObject json = loadJSONObject(...); json.getInt("id")
+// did not compile. Copies share their data, like Java references.
+// cppmode-select: Java's File, as handed to fileSelected()/folderSelected(). A cancelled
+// dialog gives a null File: "selection == null" is true for it.
+class File {
+public:
+    ::std::string path;
+    File() = default;
+    File(const ::std::string& p) : path(p) {}
+    ::std::string getAbsolutePath() const { return path; }
+    ::std::string getPath() const { return path; }
+    ::std::string toString() const { return path; }
+    ::std::string getName() const { auto i = path.find_last_of("/\\"); return i == ::std::string::npos ? path : path.substr(i + 1); }
+    ::std::string getParent() const { auto i = path.find_last_of("/\\"); return i == ::std::string::npos ? "" : path.substr(0, i); }
+    bool exists() const;
+    bool isDirectory() const;
+    bool operator==(::std::nullptr_t) const { return path.empty(); }
+    bool operator!=(::std::nullptr_t) const { return !path.empty(); }
+};
+inline ::std::ostream& operator<<(::std::ostream& o, const File& f) { return o << f.path; }
+struct JSONValue; struct JSONObject; struct JSONArray;
+using JSONObjectMap = ::std::map<::std::string, JSONValue>;
+using JSONArrayVec  = ::std::vector<JSONValue>;
 
 struct JSONValue {
     enum Type { NULL_T,BOOL_T,INT_T,FLOAT_T,STRING_T,ARRAY_T,OBJECT_T } type=NULL_T;
     bool b=false; double n=0; ::std::string s;
-    ::std::shared_ptr<JSONArray>  arr;
-    ::std::shared_ptr<JSONObject> obj;
+    ::std::shared_ptr<JSONArrayVec>  arr;
+    ::std::shared_ptr<JSONObjectMap> obj;
 
     JSONValue() = default;
     JSONValue(bool v)               : type(BOOL_T),   b(v)  {}
     JSONValue(int v)                : type(INT_T),     n(v)  {}
+    JSONValue(long v)               : type(INT_T),     n((double)v)  {}
+    JSONValue(float v)              : type(FLOAT_T),   n(v)  {}
     JSONValue(double v)             : type(FLOAT_T),   n(v)  {}
     JSONValue(const ::std::string& v) : type(STRING_T),  s(v)  {}
     JSONValue(const char* v)        : type(STRING_T),  s(v)  {}
-    JSONValue(JSONArray v)          : type(ARRAY_T),   arr(::std::make_shared<JSONArray>(v))  {}
-    JSONValue(JSONObject v)         : type(OBJECT_T),  obj(::std::make_shared<JSONObject>(v)) {}
+    JSONValue(JSONArrayVec v)       : type(ARRAY_T),   arr(::std::make_shared<JSONArrayVec>(::std::move(v)))  {}
+    JSONValue(JSONObjectMap v)      : type(OBJECT_T),  obj(::std::make_shared<JSONObjectMap>(::std::move(v))) {}
 
     bool isNull()   const { return type==NULL_T;   }
     bool isBool()   const { return type==BOOL_T;   }
@@ -2125,36 +2271,84 @@ struct JSONValue {
     int         getInt()    const { return (int)n;  }
     float       getFloat()  const { return (float)n;}
     ::std::string getString() const { return s;       }
-    JSONArray&  getArray()        { return *arr;    }
-    JSONObject& getObject()       { return *obj;    }
-    const JSONArray&  getArray()  const { return *arr; }
-    const JSONObject& getObject() const { return *obj; }
+    JSONArrayVec&  getArray()        { return *arr;    }
+    JSONObjectMap& getObject()       { return *obj;    }
+    const JSONArrayVec&  getArray()  const { return *arr; }
+    const JSONObjectMap& getObject() const { return *obj; }
 
-    JSONValue& operator[](const ::std::string& k) { return (*obj)[k]; }
+    JSONValue& operator[](const ::std::string& k) { if(!obj) { type=OBJECT_T; obj=::std::make_shared<JSONObjectMap>(); } return (*obj)[k]; }
     JSONValue& operator[](int i)                { return (*arr)[i]; }
     int  size()             const { if(isArray())return (int)arr->size(); if(isObject())return (int)obj->size(); return 0; }
     bool hasKey(const ::std::string& k) const     { return isObject() && obj->count(k); }
-    // Processing Java JSONObject interface
-    bool getBoolean(const ::std::string& k) const { return isObject()&&obj->count(k)?(*obj).at(k).getBool():false; }
-    int  getInt(const ::std::string& k)     const { return isObject()&&obj->count(k)?(int)(*obj).at(k).n:0; }
-    float getFloat(const ::std::string& k)  const { return isObject()&&obj->count(k)?(float)(*obj).at(k).n:0; }
-    ::std::string getString(const ::std::string& k) const { return isObject()&&obj->count(k)?(*obj).at(k).s:""; }
-    JSONObject& getJSONObject(const ::std::string& k) { return *(*obj)[k].obj; }
-    JSONArray&  getJSONArray(const ::std::string& k)  { return *(*obj)[k].arr; }
-    void setBoolean(const ::std::string& k, bool v)          { (*obj)[k]=JSONValue(v); }
-    void setInt(const ::std::string& k, int v)               { (*obj)[k]=JSONValue(v); }
-    void setFloat(const ::std::string& k, float v)           { (*obj)[k]=JSONValue((double)v); }
-    void setString(const ::std::string& k, const ::std::string& v){ (*obj)[k]=JSONValue(v); }
-    // JSONArray interface
-    bool getBoolean(int i) const { return isArray()&&i<(int)arr->size()?(*arr)[i].getBool():false; }
-    int  getInt(int i)     const { return isArray()&&i<(int)arr->size()?(int)(*arr)[i].n:0; }
-    float getFloat(int i)  const { return isArray()&&i<(int)arr->size()?(float)(*arr)[i].n:0; }
-    ::std::string getString(int i) const { return isArray()&&i<(int)arr->size()?(*arr)[i].s:""; }
-    void append(bool v)               { if(isArray()) arr->push_back(JSONValue(v)); }
-    void append(int v)                { if(isArray()) arr->push_back(JSONValue(v)); }
-    void append(float v)              { if(isArray()) arr->push_back(JSONValue((double)v)); }
-    void append(const ::std::string& v){ if(isArray()) arr->push_back(JSONValue(v)); }
+
+    // ── JSONObject (Java) ────────────────────────────────────────────────────
+    const JSONValue* at(const ::std::string& k) const { if(!isObject()) return nullptr; auto it=obj->find(k); return it==obj->end()?nullptr:&it->second; }
+    bool  getBoolean(const ::std::string& k, bool d=false) const { auto v=at(k); return v&&v->isBool()?v->b:d; }
+    int   getInt(const ::std::string& k, int d=0)          const { auto v=at(k); return v&&(v->type==INT_T||v->type==FLOAT_T)?(int)v->n:d; }
+    long  getLong(const ::std::string& k, long d=0)        const { auto v=at(k); return v&&(v->type==INT_T||v->type==FLOAT_T)?(long)v->n:d; }
+    float getFloat(const ::std::string& k, float d=0)      const { auto v=at(k); return v&&(v->type==INT_T||v->type==FLOAT_T)?(float)v->n:d; }
+    double getDouble(const ::std::string& k, double d=0)   const { auto v=at(k); return v&&(v->type==INT_T||v->type==FLOAT_T)?v->n:d; }
+    ::std::string getString(const ::std::string& k, const ::std::string& d="") const { auto v=at(k); return v&&v->isString()?v->s:d; }
+    bool isNull(const ::std::string& k) const { auto v=at(k); return !v||v->isNull(); }
+    JSONObject getJSONObject(const ::std::string& k);
+    JSONArray  getJSONArray(const ::std::string& k);
+    JSONValue& setBoolean(const ::std::string& k, bool v)               { (*this)[k]=JSONValue(v); return *this; }
+    JSONValue& setInt(const ::std::string& k, int v)                    { (*this)[k]=JSONValue(v); return *this; }
+    JSONValue& setLong(const ::std::string& k, long v)                  { (*this)[k]=JSONValue(v); return *this; }
+    JSONValue& setFloat(const ::std::string& k, float v)                { (*this)[k]=JSONValue((double)v); return *this; }
+    JSONValue& setDouble(const ::std::string& k, double v)              { (*this)[k]=JSONValue(v); return *this; }
+    JSONValue& setString(const ::std::string& k, const ::std::string& v){ (*this)[k]=JSONValue(v); return *this; }
+    JSONValue& setJSONObject(const ::std::string& k, const JSONValue& v){ (*this)[k]=v; return *this; }
+    JSONValue& setJSONArray(const ::std::string& k, const JSONValue& v) { (*this)[k]=v; return *this; }
+    JSONValue& remove(const ::std::string& k) { if(isObject()) obj->erase(k); return *this; }
+    ::std::vector<::std::string> keys() const { ::std::vector<::std::string> r; if(isObject()) for(auto& p:*obj) r.push_back(p.first); return r; }
+
+    // ── JSONArray (Java) ─────────────────────────────────────────────────────
+    const JSONValue* at(int i) const { return isArray()&&i>=0&&i<(int)arr->size()?&(*arr)[i]:nullptr; }
+    bool  getBoolean(int i, bool d=false) const { auto v=at(i); return v&&v->isBool()?v->b:d; }
+    int   getInt(int i, int d=0)          const { auto v=at(i); return v&&(v->type==INT_T||v->type==FLOAT_T)?(int)v->n:d; }
+    float getFloat(int i, float d=0)      const { auto v=at(i); return v&&(v->type==INT_T||v->type==FLOAT_T)?(float)v->n:d; }
+    double getDouble(int i, double d=0)   const { auto v=at(i); return v&&(v->type==INT_T||v->type==FLOAT_T)?v->n:d; }
+    ::std::string getString(int i, const ::std::string& d="") const { auto v=at(i); return v&&v->isString()?v->s:d; }
+    bool isNull(int i) const { auto v=at(i); return !v||v->isNull(); }
+    JSONObject getJSONObject(int i);
+    JSONArray  getJSONArray(int i);
+    void ensureArray() { if(!arr) { type=ARRAY_T; arr=::std::make_shared<JSONArrayVec>(); } }
+    void setAt(int i, const JSONValue& v) { ensureArray(); if(i<0) return; if(i>=(int)arr->size()) arr->resize(i+1); (*arr)[i]=v; }
+    JSONValue& setBoolean(int i, bool v)               { setAt(i,JSONValue(v)); return *this; }
+    JSONValue& setInt(int i, int v)                    { setAt(i,JSONValue(v)); return *this; }
+    JSONValue& setFloat(int i, float v)                { setAt(i,JSONValue((double)v)); return *this; }
+    JSONValue& setString(int i, const ::std::string& v){ setAt(i,JSONValue(v)); return *this; }
+    JSONValue& setJSONObject(int i, const JSONValue& v){ setAt(i,v); return *this; }
+    JSONValue& setJSONArray(int i, const JSONValue& v) { setAt(i,v); return *this; }
+    JSONValue& append(bool v)               { ensureArray(); arr->push_back(JSONValue(v)); return *this; }
+    JSONValue& append(int v)                { ensureArray(); arr->push_back(JSONValue(v)); return *this; }
+    JSONValue& append(float v)              { ensureArray(); arr->push_back(JSONValue((double)v)); return *this; }
+    JSONValue& append(double v)             { ensureArray(); arr->push_back(JSONValue(v)); return *this; }
+    JSONValue& append(const char* v)        { ensureArray(); arr->push_back(JSONValue(v)); return *this; }
+    JSONValue& append(const ::std::string& v){ ensureArray(); arr->push_back(JSONValue(v)); return *this; }
+    JSONValue& append(const JSONValue& v)   { ensureArray(); arr->push_back(v); return *this; }
+    JSONValue& remove(int i) { if(isArray()&&i>=0&&i<(int)arr->size()) arr->erase(arr->begin()+i); return *this; }
+    ::std::vector<int> getIntArray() const { ::std::vector<int> r; if(isArray()) for(auto& v:*arr) r.push_back((int)v.n); return r; }
+    ::std::vector<float> getFloatArray() const { ::std::vector<float> r; if(isArray()) for(auto& v:*arr) r.push_back((float)v.n); return r; }
+    ::std::vector<::std::string> getStringArray() const { ::std::vector<::std::string> r; if(isArray()) for(auto& v:*arr) r.push_back(v.s); return r; }
+
+    ::std::string toString() const;        // pretty-printed, like Java
+    ::std::string format(int indent) const; // indent < 0: one line
 };
+struct JSONObject : JSONValue {
+    JSONObject() : JSONValue(JSONObjectMap{}) {}
+    JSONObject(const JSONValue& v) : JSONValue(v) { if (type == NULL_T) { type = OBJECT_T; obj = ::std::make_shared<JSONObjectMap>(); } }
+};
+struct JSONArray : JSONValue {
+    JSONArray() : JSONValue(JSONArrayVec{}) {}
+    JSONArray(const JSONValue& v) : JSONValue(v) { if (type == NULL_T) { type = ARRAY_T; arr = ::std::make_shared<JSONArrayVec>(); } }
+};
+inline JSONObject JSONValue::getJSONObject(const ::std::string& k) { auto v=at(k); return v&&v->isObject()?JSONObject(*v):JSONObject(); }
+inline JSONArray  JSONValue::getJSONArray(const ::std::string& k)  { auto v=at(k); return v&&v->isArray()?JSONArray(*v):JSONArray(); }
+inline JSONObject JSONValue::getJSONObject(int i) { auto v=at(i); return v&&v->isObject()?JSONObject(*v):JSONObject(); }
+inline JSONArray  JSONValue::getJSONArray(int i)  { auto v=at(i); return v&&v->isArray()?JSONArray(*v):JSONArray(); }
+inline ::std::ostream& operator<<(::std::ostream& o, const JSONValue& v) { return o << v.toString(); }
 
 
 
@@ -2196,6 +2390,23 @@ struct XML {
     ::std::vector<::std::string> getAttributeNames() const { ::std::vector<::std::string> r; for(auto& p:attributes) r.push_back(p.first); return r; }
     void setAttributeInt(const ::std::string& k, int v)   { attributes[k]=::std::to_string(v); }
     void setAttributeFloat(const ::std::string& k, float v){ attributes[k]=::std::to_string(v); }
+    // cppmode-table: Java's XML accessors. Numbers that do not parse read as the default.
+    ::std::string getString(const ::std::string& k, const ::std::string& d="") const { return getAttribute(k,d); }
+    int   getInt(const ::std::string& k, int d=0)     const { auto it=attributes.find(k); if(it==attributes.end()) return d; char* e=nullptr; long v=::std::strtol(it->second.c_str(),&e,10); return e==it->second.c_str()?d:(int)v; }
+    float getFloat(const ::std::string& k, float d=0) const { auto it=attributes.find(k); if(it==attributes.end()) return d; char* e=nullptr; float v=::std::strtof(it->second.c_str(),&e); return e==it->second.c_str()?d:v; }
+    double getDouble(const ::std::string& k, double d=0) const { return getFloat(k,(float)d); }
+    void  setString(const ::std::string& k, const ::std::string& v) { attributes[k]=v; }
+    void  setInt(const ::std::string& k, int v)     { attributes[k]=::std::to_string(v); }
+    void  setFloat(const ::std::string& k, float v) { ::std::ostringstream o; o<<v; attributes[k]=o.str(); }
+    int   getIntContent(int d=0)     const { char* e=nullptr; long v=::std::strtol(content.c_str(),&e,10); return e==content.c_str()?d:(int)v; }
+    float getFloatContent(float d=0) const { char* e=nullptr; float v=::std::strtof(content.c_str(),&e); return e==content.c_str()?d:v; }
+    void  setIntContent(int v)     { content=::std::to_string(v); }
+    void  setFloatContent(float v) { ::std::ostringstream o; o<<v; content=o.str(); }
+    bool  hasChildren() const { return !children.empty(); }
+    ::std::vector<XML*> getChildren() { ::std::vector<XML*> r; for(auto& c:children) r.push_back(&c); return r; }
+    ::std::vector<::std::string> listChildren() const { ::std::vector<::std::string> r; for(auto& c:children) r.push_back(c.name); return r; }
+    int   getAttributeCount() const { return (int)attributes.size(); }
+    ::std::string format(int indent) const { return toString(indent < 0 ? 0 : indent); }
 };
 
 
@@ -2203,46 +2414,74 @@ struct XML {
 // TABLE  --  CSV-style data with named columns
 // =============================================================================
 
+class TableRow;
+// cppmode-table: Java's Table API. addRow()/getRow()/rows()/findRow() hand back TableRow,
+// rows are addressed by index (no pointers into the row storage, which moved on resize),
+// a CSV without a header keeps its data, and numbers that do not parse read as 0.
 class Table {
 public:
-    ::std::vector<::std::string>              columns;
-    ::std::vector<::std::vector<::std::string>> rows;
+    ::std::vector<::std::string>                columns;
+    ::std::vector<::std::vector<::std::string>> rowData;
 
     Table() = default;
+    static int   toI(const ::std::string& s) { char* e=nullptr; long v=::std::strtol(s.c_str(),&e,10); if(e==s.c_str()) return (int)::std::strtod(s.c_str(),nullptr); return (int)v; }
+    static float toF(const ::std::string& s) { return (float)::std::strtod(s.c_str(),nullptr); }
 
-    void addColumn(const ::std::string& name) { columns.push_back(name); }
+    void addColumn() { addColumn(""); }
+    void addColumn(const ::std::string& name) { columns.push_back(name); for (auto& r : rowData) r.resize(columns.size()); }
+    void removeColumn(int c) { if(c<0||c>=(int)columns.size()) return; columns.erase(columns.begin()+c); for (auto& r : rowData) if(c<(int)r.size()) r.erase(r.begin()+c); }
+    void removeColumn(const ::std::string& n) { removeColumn(getColumnIndex(n)); }
+    void setColumnTitle(int c, const ::std::string& n) { if(c>=0&&c<(int)columns.size()) columns[c]=n; }
     int  getColumnCount() const { return (int)columns.size(); }
-    int  getRowCount()    const { return (int)rows.size();    }
-    ::std::string getColumnTitle(int i) const { return i<(int)columns.size()?columns[i]:""; }
+    int  getRowCount()    const { return (int)rowData.size(); }
+    int  lastRowIndex()   const { return (int)rowData.size()-1; }
+    ::std::string getColumnTitle(int i) const { return i>=0&&i<(int)columns.size()?columns[i]:""; }
+    ::std::vector<::std::string> getColumnTitles() const { return columns; }
     int  getColumnIndex(const ::std::string& n) const {
         for (int i=0;i<(int)columns.size();i++) if(columns[i]==n) return i;
         return -1;
     }
+    ::std::vector<::std::string>& addRowCells() { rowData.push_back(::std::vector<::std::string>(columns.size())); return rowData.back(); }
+    TableRow addRow();
+    TableRow getRow(int i);
+    ::std::vector<TableRow> rows();
+    TableRow findRow(const ::std::string& value, const ::std::string& col);
+    TableRow findRow(const ::std::string& value, int col);
+    ::std::vector<TableRow> findRows(const ::std::string& value, const ::std::string& col);
 
-    ::std::vector<::std::string>& addRow() { rows.push_back(::std::vector<::std::string>(columns.size())); return rows.back(); }
-
-    ::std::string getString(int row, int col)                const { return row<(int)rows.size()&&col<(int)rows[row].size()?rows[row][col]:""; }
+    ::std::string getString(int row, int col) const { return row>=0&&row<(int)rowData.size()&&col>=0&&col<(int)rowData[row].size()?rowData[row][col]:""; }
     ::std::string getString(int row, const ::std::string& col) const { return getString(row,getColumnIndex(col)); }
-    int         getInt(int row, int col)                   const { auto s=getString(row,col); return s.empty()?0:std::stoi(s); }
-    int         getInt(int row, const ::std::string& col)    const { return getInt(row,getColumnIndex(col)); }
-    float       getFloat(int row, int col)                 const { auto s=getString(row,col); return s.empty()?0:std::stof(s); }
-    float       getFloat(int row, const ::std::string& col)  const { return getFloat(row,getColumnIndex(col)); }
+    int   getInt(int row, int col)                    const { return toI(getString(row,col)); }
+    int   getInt(int row, const ::std::string& col)   const { return getInt(row,getColumnIndex(col)); }
+    float getFloat(int row, int col)                  const { return toF(getString(row,col)); }
+    float getFloat(int row, const ::std::string& col) const { return getFloat(row,getColumnIndex(col)); }
+    double getDouble(int row, const ::std::string& col) const { return ::std::strtod(getString(row,col).c_str(),nullptr); }
 
-    void setString(int row, int col, const ::std::string& v) { if(row<(int)rows.size()&&col<(int)rows[row].size()) rows[row][col]=v; }
+    void setString(int row, int col, const ::std::string& v) {
+        if(row<0||col<0) return;
+        while((int)rowData.size()<=row) addRowCells();
+        if(col>=(int)columns.size()) { while((int)columns.size()<=col) columns.push_back(""); for (auto& r : rowData) r.resize(columns.size()); }
+        rowData[row][col]=v; }
     void setString(int row, const ::std::string& col, const ::std::string& v) { setString(row,getColumnIndex(col),v); }
-    void setInt(int row, int col, int v)     { setString(row,col,::std::to_string(v)); }
-    void setFloat(int row, int col, float v) { setString(row,col,::std::to_string(v)); }
+    void setInt(int row, int col, int v)                        { setString(row,col,::std::to_string(v)); }
+    void setInt(int row, const ::std::string& col, int v)       { setString(row,col,::std::to_string(v)); }
+    void setFloat(int row, int col, float v)                    { ::std::ostringstream o; o<<v; setString(row,col,o.str()); }
+    void setFloat(int row, const ::std::string& col, float v)   { setFloat(row,getColumnIndex(col),v); }
+
+    ::std::vector<::std::string> getStringColumn(const ::std::string& col) const { ::std::vector<::std::string> r; for(int i=0;i<getRowCount();i++) r.push_back(getString(i,col)); return r; }
+    ::std::vector<int>   getIntColumn(const ::std::string& col)   const { ::std::vector<int> r;   for(int i=0;i<getRowCount();i++) r.push_back(getInt(i,col)); return r; }
+    ::std::vector<float> getFloatColumn(const ::std::string& col) const { ::std::vector<float> r; for(int i=0;i<getRowCount();i++) r.push_back(getFloat(i,col)); return r; }
 
     ::std::vector<int> findRowsWithValue(const ::std::string& col, const ::std::string& val) const {
         ::std::vector<int> r; int c=getColumnIndex(col);
-        for (int i=0;i<(int)rows.size();i++) if(getString(i,c)==val) r.push_back(i);
+        for (int i=0;i<(int)rowData.size();i++) if(getString(i,c)==val) r.push_back(i);
         return r;
     }
     int findFirstRowWithValue(const ::std::string& col, const ::std::string& val) const {
         auto r=findRowsWithValue(col,val); return r.empty()?-1:r[0];
     }
-    void removeRow(int i) { if(i<(int)rows.size()) rows.erase(rows.begin()+i); }
-    void clearRows()      { rows.clear(); }
+    void removeRow(int i) { if(i>=0&&i<(int)rowData.size()) rowData.erase(rowData.begin()+i); }
+    void clearRows()      { rowData.clear(); }
 };
 
 
@@ -2552,18 +2791,16 @@ public:
     static float pow(float a, float b) { return ::std::pow(a,b); }
     static float floor(float x) { return ::std::floor(x); }
     static float ceil(float x)  { return ::std::ceil(x); }
-    static float round(float x) { return ::std::round(x); }
+    static float round(float x) { return ::std::floor(x + 0.5f); }  // cppmode-strapi: Java rounds .5 up, also for negatives
     static float log(float x)   { return ::std::log(x); }
     static float exp(float x)   { return ::std::exp(x); }
     static float sin(float x)   { return ::std::sin(x); }
     static float cos(float x)   { return ::std::cos(x); }
     static float tan(float x)   { return ::std::tan(x); }
     static float atan2(float y, float x) { return ::std::atan2(y,x); }
-    static const float PI;
-    static const float E;
+    static constexpr float PI = 3.14159265358979323846f;
+    static constexpr float E  = 2.71828182845904523536f;
 };
-inline const float Math::PI = 3.14159265358979323846f;
-inline const float Math::E  = 2.71828182845904523536f;
 
 class Integer : public NumberWrapperBase<int> {
 public:
@@ -3497,8 +3734,27 @@ public:
     void beginShape(int k=-1)         { kind=k; verts.clear(); }
     void endShape(bool close=false)   { closed=close; }
     ::std::vector<float> params; // for primitive shapes (ELLIPSE, RECT, etc.)
+    int prim = 0;  // cppmode-pshapeprim: RECT, ELLIPSE, ARC, ... (0 = not a primitive)
     void vertex(float x,float y,float z=0,float u=0,float v=0) { verts.push_back({x,y,z,u,v}); }
     void addChild(const PShape& s)    { children.push_back(s); }
+    // cppmode-pshape: Java's PShape style and contour methods (0..255, like the default colorMode)
+    void fill(float gray)                          { fill(gray, gray, gray, 255); }
+    void fill(float gray, float a)                 { fill(gray, gray, gray, a); }
+    void fill(float r, float g, float b)           { fill(r, g, b, 255); }
+    void fill(float r, float g, float b, float a)  { fillR = r / 255.f; fillG = g / 255.f; fillB = b / 255.f; fillA = a / 255.f;
+                                                     hasFill = true; styleEnabled = true; }
+    void noFill()                                  { hasFill = false; styleEnabled = true; }
+    void stroke(float gray)                        { stroke(gray, gray, gray, 255); }
+    void stroke(float gray, float a)               { stroke(gray, gray, gray, a); }
+    void stroke(float r, float g, float b)         { stroke(r, g, b, 255); }
+    void stroke(float r, float g, float b, float a){ strokeR = r / 255.f; strokeG = g / 255.f; strokeB = b / 255.f; strokeA = a / 255.f;
+                                                     hasStroke = true; styleEnabled = true; }
+    void noStroke()                                { hasStroke = false; styleEnabled = true; }
+    void strokeWeight(float w)                     { strokeW = w; styleEnabled = true; }
+    // a contour starts a new subpath; both renderers fill extra subpaths as holes or islands
+    void beginContour()                            { if (subpathStarts.empty()) subpathStarts.push_back(0);
+                                                     subpathStarts.push_back((int)verts.size()); }
+    void endContour()                              {}
     void addChild(const PShape* s)    { if (s) addChild(*s); }
     ::std::string name; // id/name attribute from SVG
     ::std::vector<int> subpathStarts; // subpath start indices for multi-part fills
@@ -3544,9 +3800,39 @@ public:
     void setStrokeWeight(float w) { strokeW=w; }
     void setVisible(bool v)       { visible=v; }
 
-    void translate(float x,float y,float z=0) { for(auto& v:verts){ v.x+=x;v.y+=y;v.z+=z; } }
-    void scale(float s)                        { for(auto& v:verts){ v.x*=s;v.y*=s;v.z*=s; } }
-    void scale(float sx, float sy)             { for(auto& v:verts){ v.x*=sx;v.y*=sy; } }
+    // cppmode-pshapematrix: like Java, the shape keeps its own matrix (column-major).
+    // Transforms apply to the whole shape and its children when drawn; vertices stay as defined.
+    float mtx[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    bool  hasMtx = false;
+    void mtxMul(const float* t) {
+        float r[16];
+        for (int col = 0; col < 4; col++) for (int row = 0; row < 4; row++) {
+            float s2 = 0; for (int k = 0; k < 4; k++) s2 += mtx[k * 4 + row] * t[col * 4 + k];
+            r[col * 4 + row] = s2; }
+        for (int i = 0; i < 16; i++) mtx[i] = r[i];
+        hasMtx = true;
+    }
+    void translate(float x, float y, float z = 0) { const float t[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1}; mtxMul(t); }
+    void scale(float s)                            { scale(s, s, s); }
+    void scale(float sx, float sy)                 { scale(sx, sy, 1); }
+    void scale(float sx, float sy, float sz)       { const float t[16] = {sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1}; mtxMul(t); }
+    void rotate(float a, float x, float y, float z) {
+        float l = ::std::sqrt(x * x + y * y + z * z); if (l <= 0) return; x /= l; y /= l; z /= l;
+        float c = ::std::cos(a), s2 = ::std::sin(a), k = 1 - c;
+        const float t[16] = {k*x*x + c,    k*x*y + s2*z, k*x*z - s2*y, 0,
+                             k*x*y - s2*z, k*y*y + c,    k*y*z + s2*x, 0,
+                             k*x*z + s2*y, k*y*z - s2*x, k*z*z + c,    0,
+                             0, 0, 0, 1};
+        mtxMul(t);
+    }
+    void rotate(float a)                           { rotate(a, 0, 0, 1); }
+    void rotateX(float a)                          { rotate(a, 1, 0, 0); }
+    void rotateY(float a)                          { rotate(a, 0, 1, 0); }
+    void rotateZ(float a)                          { rotate(a, 0, 0, 1); }
+    void resetMatrix()                             { for (int i = 0; i < 16; i++) mtx[i] = (i % 5 == 0) ? 1.0f : 0.0f; hasMtx = false; }
+    bool  isVisible() const                        { return visible; }
+    float getWidth() const                         { return width; }
+    float getHeight() const                        { return height; }
 
     // Style enable/disable -- controls whether shape uses its own fill/stroke
     // or inherits from the current Processing fill()/stroke() state
@@ -3599,6 +3885,7 @@ struct PFont {
         return fonts;
     }
     ::std::string name;
+    ::std::string path;   // font file createFont() found; empty if none
     float size = 12;
     bool  loaded = false;
 
@@ -3661,6 +3948,9 @@ public:
     GLuint program = 0, vert = 0, frag = 0;
     ::std::string vertSrc, fragSrc;
     bool linked = false;
+    uint64_t lp_shader = 0, lp_material = 0, lp_filter = 0;  // cppmode-lpshader: libprocessing handles
+    bool lpSetF(const ::std::string& n, int count, float x, float y, float z, float w);  // true if handled
+    bool lpSetI(const ::std::string& n, int v);
 
     PShader() = default;
     PShader(const ::std::string& v, const ::std::string& f) : vertSrc(v), fragSrc(f) {}
@@ -3689,14 +3979,14 @@ public:
     void bind()   { if (linked) glUseProgram(program); }
     void unbind() { glUseProgram(0); }
 
-    void set(const ::std::string& n, float v)                      { glUniform1f(glGetUniformLocation(program,n.c_str()),v); }
-    void set(const ::std::string& n, int v)                        { glUniform1i(glGetUniformLocation(program,n.c_str()),v); }
+    void set(const ::std::string& n, float v)                      { if (lpSetF(n, 1, v, 0, 0, 0)) return; glUniform1f(glGetUniformLocation(program,n.c_str()),v); }
+    void set(const ::std::string& n, int v)                        { if (lpSetI(n, v)) return; glUniform1i(glGetUniformLocation(program,n.c_str()),v); }
     void set(const ::std::string& n, double v)                     { set(n,(float)v); }
-    void set(const ::std::string& n, float x, float y)             { glUniform2f(glGetUniformLocation(program,n.c_str()),x,y); }
+    void set(const ::std::string& n, float x, float y)             { if (lpSetF(n, 2, x, y, 0, 0)) return; glUniform2f(glGetUniformLocation(program,n.c_str()),x,y); }
     void set(const ::std::string& n, double x, double y)           { set(n,(float)x,(float)y); }
-    void set(const ::std::string& n, float x, float y, float z)    { glUniform3f(glGetUniformLocation(program,n.c_str()),x,y,z); }
+    void set(const ::std::string& n, float x, float y, float z)    { if (lpSetF(n, 3, x, y, z, 0)) return; glUniform3f(glGetUniformLocation(program,n.c_str()),x,y,z); }
     void set(const ::std::string& n, double x, double y, double z) { set(n,(float)x,(float)y,(float)z); }
-    void set(const ::std::string& n, float x, float y, float z, float w){ glUniform4f(glGetUniformLocation(program,n.c_str()),x,y,z,w); }
+    void set(const ::std::string& n, float x, float y, float z, float w){ if (lpSetF(n, 4, x, y, z, w)) return; glUniform4f(glGetUniformLocation(program,n.c_str()),x,y,z,w); }
     void set(const ::std::string& n, double x, double y, double z, double w){ set(n,(float)x,(float)y,(float)z,(float)w); }
 
     ~PShader() { if(program)glDeleteProgram(program); if(vert)glDeleteShader(vert); if(frag)glDeleteShader(frag); }
@@ -3838,26 +4128,34 @@ template<class T>          using TreeSet = HashSet<T>;
 
 class TableRow {
 public:
-    ::std::vector<::std::string>* row  = nullptr;
-    ::std::vector<::std::string>* cols = nullptr;
+    Table* table = nullptr;   // cppmode-table: a row is its table plus an index
+    int    index = -1;
 
     TableRow() = default;
-    TableRow(::std::vector<::std::string>& r, ::std::vector<::std::string>& c) : row(&r), cols(&c) {}
+    TableRow(Table* t, int i) : table(t), index(i) {}
 
-    ::std::string getString(int i)                   const { return (row&&i>=0&&i<(int)row->size())?(*row)[static_cast<size_t>(i)]:""; }
-    ::std::string getString(const ::std::string& col)  const {
-        if (!cols) return "";
-        for (int i=0;i<(int)cols->size();i++) if((*cols)[i]==col) return getString(i);
-        return "";
-    }
-    int   getInt(int i)                const { auto s=getString(i);   return s.empty()?0:std::stoi(s); }
-    int   getInt(const ::std::string& c) const { auto s=getString(c);   return s.empty()?0:std::stoi(s); }
-    float getFloat(int i)              const { auto s=getString(i);   return s.empty()?0:std::stof(s); }
-    float getFloat(const ::std::string& c)const{ auto s=getString(c);   return s.empty()?0:std::stof(s); }
-    void  setString(int i, const ::std::string& v) { if(row&&i>=0&&i<(int)row->size()) (*row)[static_cast<size_t>(i)]=v; }
-    void  setInt(int i, int v)                   { setString(i, ::std::to_string(v)); }
-    void  setFloat(int i, float v)               { setString(i, ::std::to_string(v)); }
+    int getColumnCount() const { return table?table->getColumnCount():0; }
+    ::std::string getColumnTitle(int c) const { return table?table->getColumnTitle(c):""; }
+    ::std::string getString(int c)                    const { return table?table->getString(index,c):""; }
+    ::std::string getString(const ::std::string& c)   const { return table?table->getString(index,c):""; }
+    int   getInt(int c)                     const { return table?table->getInt(index,c):0; }
+    int   getInt(const ::std::string& c)    const { return table?table->getInt(index,c):0; }
+    float getFloat(int c)                   const { return table?table->getFloat(index,c):0; }
+    float getFloat(const ::std::string& c)  const { return table?table->getFloat(index,c):0; }
+    double getDouble(const ::std::string& c) const { return table?table->getDouble(index,c):0; }
+    void  setString(int c, const ::std::string& v)                 { if(table) table->setString(index,c,v); }
+    void  setString(const ::std::string& c, const ::std::string& v){ if(table) table->setString(index,c,v); }
+    void  setInt(int c, int v)                       { if(table) table->setInt(index,c,v); }
+    void  setInt(const ::std::string& c, int v)      { if(table) table->setInt(index,c,v); }
+    void  setFloat(int c, float v)                   { if(table) table->setFloat(index,c,v); }
+    void  setFloat(const ::std::string& c, float v)  { if(table) table->setFloat(index,c,v); }
 };
+inline TableRow Table::addRow() { addRowCells(); return TableRow(this, (int)rowData.size()-1); }
+inline TableRow Table::getRow(int i) { return i>=0&&i<(int)rowData.size()?TableRow(this,i):TableRow(); }
+inline ::std::vector<TableRow> Table::rows() { ::std::vector<TableRow> r; for(int i=0;i<(int)rowData.size();i++) r.push_back(TableRow(this,i)); return r; }
+inline TableRow Table::findRow(const ::std::string& v, int c) { for(int i=0;i<(int)rowData.size();i++) if(getString(i,c)==v) return TableRow(this,i); return TableRow(); }
+inline TableRow Table::findRow(const ::std::string& v, const ::std::string& c) { return findRow(v, getColumnIndex(c)); }
+inline ::std::vector<TableRow> Table::findRows(const ::std::string& v, const ::std::string& c) { ::std::vector<TableRow> r; int ci=getColumnIndex(c); for(int i=0;i<(int)rowData.size();i++) if(getString(i,ci)==v) r.push_back(TableRow(this,i)); return r; }
 
 // =============================================================================
 // PVECTOR HELPER  --  matches Processing Java's createVector()
@@ -3865,14 +4163,12 @@ public:
 
 // Table::getRow() -- defined here after TableRow
 inline TableRow Table_getRow_impl(Table& t, int i) {
-    if(i<0||i>=(int)t.rows.size()) return TableRow();
-    return TableRow(t.rows[static_cast<size_t>(i)], t.columns);
+    return t.getRow(i);
 }
 
 // Table getRow() free helper -- use t.getRow(i) via macro or just call this
 inline TableRow tableGetRow(Table& t, int i) {
-    if(i<0||i>=(int)t.rows.size()) return TableRow();
-    return TableRow(t.rows[static_cast<size_t>(i)], t.columns);
+    return t.getRow(i);
 }
 
 inline PVector createVector(float x, float y, float z=0) { return PVector(x, y, z); }
@@ -4233,7 +4529,7 @@ struct PApplet {
     int& width  = logicalW;
     int& height = logicalH;
 
-    float mouseX = 0, mouseY = 0, pmouseX = 0, pmouseY = 0;
+    int   mouseX = 0, mouseY = 0, pmouseX = 0, pmouseY = 0;   // int, as in Java
     float mouseDX = 0, mouseDY = 0;
     bool  _mousePressed = false;
     int   mouseButton = -1;
@@ -4257,8 +4553,10 @@ struct PApplet {
     bool  _eventDrewSomething = false;        // set true if keyPressed()/mousePressed() drew
     bool  _backgroundCalledThisFrame = false; // set true if background() was called this frame
 
-    int   frameCount = 1;
-    float _frameRate = 60.0f;
+    int   frameCount = 0;   // 0 in setup(), 1 in the first draw(), as in Java
+    float _frameRate = 60.0f;  // cppmode-measured-fps: measured, what the sketch reads as frameRate
+    float _targetFrameRate = 60.0f;
+
     float deltaTime  = 0.016f; // seconds since last frame (like p5.js deltaTime/1000)
     bool  looping = true;
 
@@ -4316,6 +4614,12 @@ struct PApplet {
     virtual void mouseDragged(MouseEvent)    {}
     virtual void mouseWheel(int)             {}
     virtual void mouseWheel(MouseEvent)      {}
+    // cppmode-select: selectInput/selectOutput/selectFolder call these, by value or by pointer,
+    // like Java's fileSelected(File selection). Cancel gives a null File / nullptr.
+    virtual void fileSelected(File)          {}
+    virtual void fileSelected(File*)         {}
+    virtual void folderSelected(File)        {}
+    virtual void folderSelected(File*)       {}
     virtual void keyPressed()                {}
     virtual void keyPressed(KeyEvent)        {}
     virtual void keyReleased()               {}
@@ -4332,7 +4636,7 @@ struct PApplet {
     void run();
 
     // ── Static instance pointer ──────────────────────────────────────────────
-    static PApplet* g_papplet;
+    static inline PApplet* g_papplet = nullptr;
 
     // ── Environment ─────────────────────────────────────────────────────────
     void size(int w, int h);
@@ -4340,7 +4644,7 @@ struct PApplet {
     void fullScreen();
     void fullScreen(int mode);
     void  frameRate(int fps);
-    float getFrameRate() const { return _frameRate; } // convenience, not in Processing Java
+    float getFrameRate() const { return _targetFrameRate; } // convenience, not in Processing Java
     void noLoop();
     void loop();
     void redraw();
@@ -4525,6 +4829,7 @@ struct PApplet {
     void box(float w, float h, float d);
     void sphere(float r);
     void sphereDetail(int res);
+    void sphereDetail(int ures, int vres);
     void rotateX(float angle);
     void rotateY(float angle);
     void rotateZ(float angle);
@@ -4690,11 +4995,14 @@ struct PApplet {
     void image(PGraphics* pg, float x, float y, float w, float h) { if (pg) image(*pg, x, y, w, h); }
     void filter(int mode);
     void filter(int mode, float param);
+    void filter(PShader& s);                              // cppmode-lpshader
+    void filter(PShader* s) { if (s) filter(*s); }
     void loadPixels();
     void updatePixels();
     color get(int x, int y);
+    PImage* get(int x, int y, int w, int h) { return new PImage(getRegion(x, y, w, h)); }  // like createImage, a new image
     void  set(int x, int y, color c);
-    void saveFrame(const ::std::string& filename="frame-####.png");
+    void saveFrame(const ::std::string& filename="screen-####.tif");  // cppmode-savefile: Java's default name
     void save(const ::std::string& filename);
 
     // ── Blend / clip ─────────────────────────────────────────────────────────
@@ -4719,6 +5027,14 @@ struct PApplet {
     PShape  createShape(int kind=-1);
     PShape* loadShape(const ::std::string& path);
     PShape  createShape(int kind, float a, float b, float c, float d);
+    // cppmode-pshapeprim: the rest of Java's createShape(kind, ...) primitives
+    PShape  createShape(int kind, float a);
+    PShape  createShape(int kind, float a, float b);
+    PShape  createShape(int kind, float a, float b, float c);
+    PShape  createShape(int kind, float a, float b, float c, float d, float e, float f);
+    PShape  createShape(int kind, float a, float b, float c, float d, float e, float f, float g);
+    PShape  createShape(int kind, float a, float b, float c, float d, float e, float f, float g, float hh);
+    PShape  makePrimShape(int kind, ::std::vector<float> p);
     void shape(const PShape& s, float x=0, float y=0);
     void shape(const PShape& s, float x, float y, float w, float h);
     void shape(const PShape* s, float x=0, float y=0) { if(s) shape(*s,x,y); }
@@ -4738,7 +5054,7 @@ struct PApplet {
     static float abs(float x)   { return ::std::fabs(x); }
     static float ceil(float x)  { return ::std::ceil(x); }
     static float floor(float x) { return ::std::floor(x); }
-    static float round(float x) { return ::std::round(x); }
+    static float round(float x) { return ::std::floor(x + 0.5f); }  // cppmode-strapi: Java rounds .5 up, also for negatives
     static float exp(float x)   { return ::std::exp(x); }
     static float log(float x)   { return ::std::log(x); }
     static float pow(float b, float e) { return ::std::pow(b,e); }
@@ -4775,17 +5091,26 @@ struct PApplet {
     float noise(float x, float y, float z);
 
     // ── Print ────────────────────────────────────────────────────────────────
-    template<typename T> static void print(const T& v)   { ::std::cout << v; ::std::cout.flush(); }
-    template<typename T> static void println(const T& v) { ::std::cout << v << "\n"; ::std::cout.flush(); }
+    // Java's char is char16_t here; std::cout refuses it, so print it as a character
+    template<typename T> static void cppmodePut(const T& v) { cppmodeWrite(::std::cout, v); }  // cppmode-print
+    template<typename T> static void print(const T& v)   { ::Processing::print(v); }
+    template<typename T> static void println(const T& v) { ::Processing::println(v); }
     static void println() { ::std::cout << "\n"; ::std::cout.flush(); }
+    template<typename A, typename B, typename... R> static void print(const A& a, const B& b, const R&... r)   { ::Processing::print(a, b, r...); }
+    template<typename A, typename B, typename... R> static void println(const A& a, const B& b, const R&... r) { ::Processing::println(a, b, r...); }
 
     // ── String helpers ───────────────────────────────────────────────────────
     static ::std::string str(int v)   { return ::std::to_string(v); }
-    static ::std::string str(float v) { return ::std::to_string(v); }
-    static ::std::string str(double v) { return ::std::to_string(v); }
+    static ::std::string str(float v) { return cppmodeJavaFloat(v, true); }
+    static ::std::string str(double v) { return cppmodeJavaFloat(v, false); }
     static ::std::string str(bool v)  { return v?"true":"false"; }
     static ::std::string str(char v)  { return ::std::string(1,v); }
     static ::std::string str(char16_t v)  { return ::std::string(1,(char)v); }
+    static ::std::string str(unsigned int v) { return ::std::to_string(v); }
+    static ::std::string str(long v) { return ::std::to_string(v); }
+    static ::std::string str(unsigned long v) { return ::std::to_string(v); }
+    static ::std::string str(long long v) { return ::std::to_string(v); }
+    static ::std::string str(unsigned long long v) { return ::std::to_string(v); }
     static ::std::vector<::std::string> split(const ::std::string& s, char d);
     static ::std::vector<::std::string> splitTokens(const ::std::string& s, const ::std::string& d);
     static ::std::string join(const ::std::vector<::std::string>& v, const ::std::string& sep);
@@ -4815,6 +5140,10 @@ struct PApplet {
     static ::std::vector<::std::string> nfs(const ::std::vector<float>& nums, int left, int right);
     static ::std::string hex(int v);
     static ::std::string binary(int v);
+    // cppmode-strapi: Java overloads the members above hid from sketches (sketches are PApplets)
+    static ::std::string hex(int v, int digits)    { ::std::string s = hex(v);    if (digits > 8)  digits = 8;  return digits <= 0 ? s : s.substr(8 - digits); }
+    static ::std::string binary(int v, int digits) { ::std::string s = binary(v); if (digits > 32) digits = 32; return digits <= 0 ? s : s.substr(32 - digits); }
+    static ::std::vector<::std::string> splitTokens(const ::std::string& s) { return splitTokens(s, " \t\n\r\f"); }
     static int   toInt(const ::std::string& s)     { try{return ::std::stoi(s);}catch(...){return 0;} }
     static float toFloat(const ::std::string& s)   { try{return ::std::stof(s);}catch(...){return 0;} }
     static bool  toBoolean(const ::std::string& s) { return s=="true"||s=="1"||s=="yes"; }
@@ -4826,9 +5155,13 @@ struct PApplet {
     static bool saveBytes(const ::std::string& path, const ::std::vector<unsigned char>& d);
     static BufferedReader* createReader(const ::std::string& path);
     static PrintWriter*    createWriter(const ::std::string& path);
-    static ::std::string selectInput(const ::std::string& prompt="",  const ::std::string& filter="");
-    static ::std::string selectOutput(const ::std::string& prompt="", const ::std::string& filter="");
-    static ::std::string selectFolder(const ::std::string& prompt="");
+    // cppmode-select: selectInput("prompt", "fileSelected") works like Java: the dialog runs
+    // without blocking draw(), and the callback is called on the main thread afterwards. With no
+    // callback name (or a filter like "*.png") they block and return the path ("" when cancelled).
+    static ::std::string selectInput(const ::std::string& prompt="",  const ::std::string& callbackOrFilter="");
+    static ::std::string selectOutput(const ::std::string& prompt="", const ::std::string& callbackOrFilter="");
+    static ::std::string selectFolder(const ::std::string& prompt="", const ::std::string& callback="");
+    void cppmodeDeliverSelections();
 
     // ── JSON ─────────────────────────────────────────────────────────────────
     static JSONValue   parseJSON(const ::std::string& src);
@@ -4857,7 +5190,9 @@ struct PApplet {
 
     // ── Private state ────────────────────────────────────────────────────────
     // (implementation details, not for user code)
-    GLFWwindow* gWindow = nullptr;
+    GLFWwindow* gWindow  = nullptr;
+    // Active render backend (null = OpenGL path). Set during run().
+    ProcessingBackend* _backend = nullptr;
     bool  mouseInWindow = false;
     bool  is3DMode = false;
     int   sphereRes = 48;
@@ -4885,6 +5220,7 @@ struct PApplet {
     bool  shape3D = false;
     ::std::vector<::std::pair<float,float>>      shapeVerts;
     ::std::vector<::std::array<float,3>>         shapeVerts3D;
+    ::std::vector<::std::array<float,4>>         shapeCols;  // cppmode-vertexfill: fill at each vertex(), like Java
     ::std::vector<::std::pair<float,float>>      contourVerts;
 
     struct Style {
@@ -5015,7 +5351,6 @@ protected:
     static int  glfw_to_java_keycode(int k);
 };
 
-inline PApplet* PApplet::g_papplet = nullptr;
 // ── _api:: implementations (after PApplet is complete) ───────────────────────
 namespace _api {
     inline void line(float x1,float y1,float x2,float y2){ if(PApplet::g_papplet) PApplet::g_papplet->line(x1,y1,x2,y2); }
@@ -5072,6 +5407,7 @@ namespace _api {
 
 
 inline void PGraphics::beginDraw() {
+    if (cppmodeLpBeginDraw(this)) return;  // cppmode-pg-offscreen
     // Guard against beginDraw() called again before a matching endDraw().
     // savedViewport is a single field -- without this guard, a second
     // beginDraw() would overwrite the FIRST call's saved (correct) main-
@@ -5200,6 +5536,8 @@ inline void PGraphics::beginDraw() {
         _savedMainStyle.strokeR=p->strokeR; _savedMainStyle.strokeG=p->strokeG; _savedMainStyle.strokeB=p->strokeB; _savedMainStyle.strokeA=p->strokeA;
         _savedMainStyle.strokeW=p->strokeW;
         _savedMainStyle.doFill=p->doFill; _savedMainStyle.doStroke=p->doStroke; _savedMainStyle.smoothing=p->smoothing;
+        _savedMainLights=p->lightsEnabled; _savedMainLightIndex=p->lightIndex;  // cppmode-pgpixels: a buffer starts unlit, like Java
+        p->lightsEnabled=false; p->lightIndex=0; glDisable(GL_LIGHTING); glDisable(GL_COLOR_MATERIAL);
         _savedMainStyle.currentRectMode=p->currentRectMode; _savedMainStyle.currentEllipseMode=p->currentEllipseMode; _savedMainStyle.currentImageMode=p->currentImageMode;
         _savedMainStyle.tintR=p->tintR; _savedMainStyle.tintG=p->tintG; _savedMainStyle.tintB=p->tintB; _savedMainStyle.tintA=p->tintA;
         _savedMainStyle.doTint=p->doTint;
@@ -5285,6 +5623,8 @@ inline void PGraphics::_endDrawImpl() {
         p->strokeR=_savedMainStyle.strokeR; p->strokeG=_savedMainStyle.strokeG; p->strokeB=_savedMainStyle.strokeB; p->strokeA=_savedMainStyle.strokeA;
         p->strokeW=_savedMainStyle.strokeW;
         p->doFill=_savedMainStyle.doFill; p->doStroke=_savedMainStyle.doStroke; p->smoothing=_savedMainStyle.smoothing;
+        p->lightsEnabled=_savedMainLights; p->lightIndex=_savedMainLightIndex;  // cppmode-pgpixels: the buffer's lights stay in the buffer
+        if (_savedMainLights) { glEnable(GL_LIGHTING); glEnable(GL_COLOR_MATERIAL); } else { glDisable(GL_LIGHTING); glDisable(GL_COLOR_MATERIAL); }
         p->currentRectMode=_savedMainStyle.currentRectMode; p->currentEllipseMode=_savedMainStyle.currentEllipseMode; p->currentImageMode=_savedMainStyle.currentImageMode;
         p->tintR=_savedMainStyle.tintR; p->tintG=_savedMainStyle.tintG; p->tintB=_savedMainStyle.tintB; p->tintA=_savedMainStyle.tintA;
         p->doTint=_savedMainStyle.doTint;

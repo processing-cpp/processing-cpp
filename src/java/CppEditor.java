@@ -19,31 +19,86 @@ public class CppEditor extends Editor {
   private final Set<Integer> errorLines = new HashSet<>();
   private ErrorOverlay overlay;
   private CppLinter linter;
+  private TsTokenMarker tsMarker;
+  private TsGoToDefinition goToDef;
 
   public CppEditor(Base base, String path,
                    EditorState state, CppMode mode) throws EditorException {
     super(base, path, state, mode);
-    linter = new CppLinter(mode, this::setProblemList);
-    // Hook into text area changes for live linting
+    linter  = new CppLinter(mode, problems -> {
+      setProblemList(problems);
+      // Clear the error overlay when the problem list becomes empty
+      if (problems.isEmpty()) {
+        javax.swing.SwingUtilities.invokeLater(this::clearErrorHighlight);
+      }
+    });
+    goToDef = new TsGoToDefinition();
+    // Hook into text area changes for live linting, highlighting, and indexing
     javax.swing.SwingUtilities.invokeLater(() -> {
       textarea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-        public void insertUpdate(javax.swing.event.DocumentEvent e)  { scheduleLint(); }
-        public void removeUpdate(javax.swing.event.DocumentEvent e)  { scheduleLint(); }
-        public void changedUpdate(javax.swing.event.DocumentEvent e) { scheduleLint(); }
+        public void insertUpdate(javax.swing.event.DocumentEvent e)  { onDocumentChanged(); }
+        public void removeUpdate(javax.swing.event.DocumentEvent e)  { onDocumentChanged(); }
+        public void changedUpdate(javax.swing.event.DocumentEvent e) { onDocumentChanged(); }
       });
-      scheduleLint(); // initial lint on open
+      onDocumentChanged(); // initial pass on open
     });
   }
 
-  private void scheduleLint() {
-    if (linter == null) return;
-    // Pass sketch for tab metadata, plus live text for the current tab
-    linter.scheduleCheck(sketch, sketch.getCurrentCodeIndex(), getText());
+  /** Called on every document change — fans out to all live-analysis passes. */
+  private void onDocumentChanged() {
+    int currentTab = sketch.getCurrentCodeIndex();
+    String liveText = getText();
+
+    // Linter
+    if (linter != null) linter.scheduleCheck(sketch, currentTab, liveText);
+
+    // Syntax highlighting
+    if (tsMarker != null) tsMarker.invalidate();
+
+    // Go-to-definition index
+    if (goToDef != null) {
+      Object[] pair = TsGoToDefinition.buildSourceAndOffsets(sketch, currentTab, liveText);
+      goToDef.scheduleIndex((String) pair[0], (int[]) pair[1]);
+    }
+  }
+
+  /** Jump to the definition of the word at the caret (or no-op if unknown). */
+  public void handleGoToDefinition() {
+    if (goToDef == null) return;
+    String word = wordAtCaret();
+    if (word == null || word.isBlank()) return;
+    TsGoToDefinition.Definition def = goToDef.findDefinition(word);
+    if (def == null) return;
+    // Switch to the right tab and scroll to the definition
+    sketch.setCurrentCode(def.tabIndex());
+    javax.swing.SwingUtilities.invokeLater(() -> {
+      try {
+        textarea.setCaretPosition(
+            textarea.getLineStartOffset(def.row()) + def.col());
+        textarea.scrollTo(def.row(), def.col());
+      } catch (Exception ignored) {}
+    });
+  }
+
+  /** Returns the identifier word under the current caret position, or null. */
+  private String wordAtCaret() {
+    try {
+      int pos   = textarea.getCaretPosition();
+      String src = textarea.getDocument().getText(0, textarea.getDocumentLength());
+      if (pos < 0 || pos > src.length()) return null;
+      int start = pos;
+      while (start > 0 && Character.isJavaIdentifierPart(src.charAt(start - 1))) start--;
+      int end = pos;
+      while (end < src.length() && Character.isJavaIdentifierPart(src.charAt(end))) end++;
+      return (end > start) ? src.substring(start, end) : null;
+    } catch (Exception e) { return null; }
   }
 
   @Override
   public void dispose() {
-    if (linter != null) linter.shutdown();
+    if (linter    != null) linter.shutdown();
+    if (tsMarker  != null) tsMarker.dispose();
+    if (goToDef   != null) goToDef.dispose();
     super.dispose();
   }
 
@@ -52,7 +107,7 @@ public class CppEditor extends Editor {
   private static final String BUG_REPORT_URL =
     "https://github.com/processing-cpp/processing.cpp/issues";
 
-  private static final String[] CPP_STDS = {"c++17", "c++20", "c++23", "c++2c"};
+  private static final String[] CPP_STDS = {"c++14", "c++17", "c++20", "c++23", "c++2c"};
   private static final String PREF_KEY = "cppmode.std";
   private JComboBox<String> stdCombo;
 
@@ -138,6 +193,7 @@ public class CppEditor extends Editor {
     } else {
       tabBar.add(stdCombo);
     }
+
     tabBar.revalidate();
     tabBar.repaint();
   }
@@ -304,6 +360,10 @@ public class CppEditor extends Editor {
     // handlePressed(), mirroring JavaInputHandler, so they're no longer
     // bound here individually.
 
+    // ── Go-to-definition (F3) ────────────────────────────────────────────────
+    ih.addKeyBinding("F3", (java.awt.event.ActionListener)
+        e -> handleGoToDefinition());
+
     // ── Home / End ─────────────────────────────────────────────────────────
     ih.addKeyBinding("HOME",    InputHandler.HOME);
     ih.addKeyBinding("END",     InputHandler.END);
@@ -337,6 +397,11 @@ public class CppEditor extends Editor {
     ih.addKeyBinding("PAGE_DOWN", InputHandler.NEXT_PAGE);
     ih.addKeyBinding("S+PAGE_UP", InputHandler.SELECT_PREV_PAGE);
     ih.addKeyBinding("S+PAGE_DOWN",InputHandler.SELECT_NEXT_PAGE);
+
+    // ── Tree-sitter syntax highlighting ──────────────────────────────────────
+    tsMarker = new TsTokenMarker();
+    ta.getDocument().setTokenMarker(tsMarker);
+    javax.swing.SwingUtilities.invokeLater(tsMarker::invalidate);
 
     // ── Error overlay ─────────────────────────────────────────────────────
     overlay = new ErrorOverlay(ta);
@@ -554,8 +619,10 @@ public class CppEditor extends Editor {
         }
       }
     }
-    CppBuild build = new CppBuild(sketch, (CppMode) getMode());
-    build.showExportDialog(sketch, this);
+    // Export dialog not yet implemented in tree-sitter pipeline
+    javax.swing.JOptionPane.showMessageDialog(this,
+        "Export is not yet supported in CppMode.", "Export",
+        javax.swing.JOptionPane.INFORMATION_MESSAGE);
   }
 
 }

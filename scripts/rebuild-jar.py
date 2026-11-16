@@ -18,15 +18,17 @@ Usage:
 import subprocess
 import sys
 import os
+import shutil
+import tempfile
+import platform
 import glob
 import platform
 import tempfile
 from os.path import expanduser
 
 SKETCHBOOK_JAR_DEST = os.path.expanduser("~/sketchbook/modes/CppMode/mode/CppMode.jar")
-TMP_DIR = tempfile.gettempdir() + os.sep + "_cpp"
-
-def run(cmd, cwd=None, stopOnFailure=True):
+TMP_DIR = os.path.join(tempfile.gettempdir(), "_cpp")
+def run(cmd, cwd=None):
     print(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=cwd)
     if stopOnFailure:
@@ -59,12 +61,7 @@ def main():
         glob.glob(os.path.join(libs_dir, "java-*.jar"))
     )
     java_jar = _candidates[0] if _candidates else os.path.join(libs_dir, "java.jar")
-
-    if platform.system() == "Windows":
-        gradlew = os.path.join(processing4_dir, "gradlew.bat")
-    else:
-        gradlew = os.path.join(processing4_dir, "gradlew")
-
+    gradlew = os.path.join(processing4_dir, "gradlew.bat" if platform.system() == "Windows" else "gradlew")
     if not os.path.exists(cppbuild_java):
         print(f"ERROR: expected CppBuild.java not found at {cppbuild_java}")
         print("Is this really a processing4 checkout with CppMode's source linked in?")
@@ -87,16 +84,8 @@ def main():
         print(f"ERROR: expected jar not found at {java_jar}")
         sys.exit(1)
 
-    if platform.system() == "Windows":
-        run(["cmd.exe", "/C", "rmdir", "/S", "/Q", TMP_DIR], stopOnFailure=False)
-    else:
-        run(["rm", "-rf", TMP_DIR])
-
-    if platform.system() == "Windows":
-        run(["cmd.exe", "/C", "mkdir", TMP_DIR])
-    else:
-        run(["mkdir", TMP_DIR])
-
+    print(f"$ remove {TMP_DIR}"); shutil.rmtree(TMP_DIR, ignore_errors=True)
+    print(f"$ mkdir {TMP_DIR}"); os.makedirs(TMP_DIR, exist_ok=True)
     run(["jar", "xf", java_jar], cwd=TMP_DIR)
     os.makedirs(os.path.dirname(SKETCHBOOK_JAR_DEST), exist_ok=True)
     run(["jar", "cf", SKETCHBOOK_JAR_DEST, "processing/mode/cpp/"], cwd=TMP_DIR)
@@ -110,12 +99,23 @@ if __name__ == "__main__":
 
 # Sync to Processing bundled mode dirs so IDE picks up changes immediately
 import shutil, pathlib
-home = expanduser("~")
-jar = pathlib.Path(f"{home}/sketchbook/modes/CppMode/mode/CppMode.jar")
-for dest in [
-    f"{home}/Projects/processing4/app/build/resources-bundled/common/modes/CppMode/mode/CppMode.jar",
-    f"{home}/Projects/processing4/app/build/compose/tmp/prepareAppResources/modes/CppMode/mode/CppMode.jar",
+mode_src = pathlib.Path(os.path.expanduser("~") + f"/sketchbook/modes/CppMode")
+jar      = mode_src / "mode/CppMode.jar"
+libs_src = mode_src / "libs"
+
+for mode_dest in [
+    os.path.expanduser("~") + f"/Projects/processing4/app/build/resources-bundled/common/modes/CppMode",
+    os.path.expanduser("~") + f"/Projects/processing4/app/build/compose/tmp/prepareAppResources/modes/CppMode",
 ]:
-    pathlib.Path(dest).parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(jar, dest)
-    print(f"Synced to {dest}")
+    dest = pathlib.Path(mode_dest)
+    # sync jar
+    (dest / "mode").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(jar, dest / "mode/CppMode.jar")
+    print(f"Synced jar to {dest / 'mode/CppMode.jar'}")
+    # sync native libs
+    if libs_src.exists():
+        libs_dest = dest / "libs"
+        if libs_dest.exists():
+            shutil.rmtree(libs_dest)
+        shutil.copytree(libs_src, libs_dest)
+        print(f"Synced libs to {libs_dest}")
