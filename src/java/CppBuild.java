@@ -171,7 +171,7 @@ public class CppBuild {
 
   // ── Sketch writing ────────────────────────────────────────────────────────
 
-  private File writeSketch(RunnerListener listener) throws Exception {
+  File writeSketch(RunnerListener listener) throws Exception {
     // 1. Collect all tabs
     int tabCount = sketch.getCodeCount();
     StringBuilder raw = new StringBuilder();

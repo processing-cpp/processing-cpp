@@ -620,9 +620,9 @@ public class CppEditor extends Editor {
       }
     }
     // Export dialog not yet implemented in tree-sitter pipeline
-    javax.swing.JOptionPane.showMessageDialog(this,
-        "Export is not yet supported in CppMode.", "Export",
-        javax.swing.JOptionPane.INFORMATION_MESSAGE);
+    // cppmode-export: the export targets restored from the old CppBuild, now in CppExport
+    CppMode m = (CppMode) getMode();
+    new CppExport(sketch, m, m.getRuntimeDir()).showExportDialog(sketch, this);
   }
 
 }
