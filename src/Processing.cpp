@@ -851,20 +851,63 @@ void PApplet::size(int w,int h,int renderer){
 // cppmode-select: fullScreen() sizes the sketch to the display first (width/height used to stay
 // 640x480), and a call in settings() is applied once the window exists (it stayed windowed).
 static bool g_fullScreenPending = false;
+// cppmode-fsdisplay: which monitor fullScreen() uses. 0 = primary, 1..N = that monitor, -1 = SPAN.
+static int g_fsDisplay = 0;
+static GLFWmonitor* cppmodeFsMonitor() {
+    int n = 0; GLFWmonitor** ms = glfwGetMonitors(&n);
+    if (g_fsDisplay >= 1 && g_fsDisplay <= n) return ms[g_fsDisplay - 1];
+    if (g_fsDisplay >= 1) fprintf(stderr, "[CppMode] fullScreen: display %d not found (%d connected), using the primary one\n", g_fsDisplay, n);
+    return glfwGetPrimaryMonitor();
+}
+// Bounding box of every monitor, for fullScreen(SPAN).
+static bool cppmodeSpanRect(int& x, int& y, int& w, int& h) {
+    int n = 0; GLFWmonitor** ms = glfwGetMonitors(&n); if (n <= 0) return false;
+    int x0 = 1 << 30, y0 = 1 << 30, x1 = -(1 << 30), y1 = -(1 << 30);
+    for (int i = 0; i < n; i++) {
+        int mx, my; glfwGetMonitorPos(ms[i], &mx, &my);
+        const GLFWvidmode* v = glfwGetVideoMode(ms[i]); if (!v) continue;
+        x0 = ::std::min(x0, mx); y0 = ::std::min(y0, my);
+        x1 = ::std::max(x1, mx + v->width); y1 = ::std::max(y1, my + v->height);
+    }
+    if (x1 <= x0) return false;
+    x = x0; y = y0; w = x1 - x0; h = y1 - y0; return true;
+}
+// Size the sketch for the chosen display (or the span) before the window exists.
+static void cppmodeFsSize(int& w, int& h) {
+    int x, y;
+    if (g_fsDisplay < 0 && cppmodeSpanRect(x, y, w, h)) return;
+    GLFWmonitor* m = cppmodeFsMonitor(); const GLFWvidmode* v = m ? glfwGetVideoMode(m) : nullptr;
+    if (v) { w = v->width; h = v->height; }
+}
 static void cppmodeGoFullScreen(GLFWwindow* w) {
     if (!w) { g_fullScreenPending = true; return; }
-    GLFWmonitor* m = glfwGetPrimaryMonitor(); if (!m) return;
+    if (g_fsDisplay < 0) {
+        int x, y, sw, sh;
+        if (!cppmodeSpanRect(x, y, sw, sh)) return;
+        glfwSetWindowAttrib(w, GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowMonitor(w, nullptr, x, y, sw, sh, GLFW_DONT_CARE);
+        return;
+    }
+    GLFWmonitor* m = cppmodeFsMonitor(); if (!m) return;
     const GLFWvidmode* v = glfwGetVideoMode(m); if (!v) return;
     glfwSetWindowMonitor(w, m, 0, 0, v->width, v->height, v->refreshRate);
 }
-void PApplet::fullScreen() {
-    if (displayWidth > 0 && displayHeight > 0) size(displayWidth, displayHeight);
+static constexpr int CPPMODE_FS_PRIMARY = -1000;  // SPAN is 0, so the default needs its own value
+static void cppmodeFullScreen(PApplet* app, int mode, int display) {
+    g_fsDisplay = display == CPPMODE_FS_PRIMARY ? 0 : display == SPAN ? -1 : display;
+    int w = app->displayWidth, h = app->displayHeight;
+    cppmodeFsSize(w, h);
+    if (w > 0 && h > 0) { if (mode) app->size(w, h, mode); else app->size(w, h); }
+}
+// gWindow is read after size(), since size(w, h, P2D) can create or replace the window.
+void PApplet::fullScreen() { cppmodeFullScreen(this, 0, CPPMODE_FS_PRIMARY); cppmodeGoFullScreen(gWindow); }
+void PApplet::fullScreen(int m) {
+    if (m == P2D || m == P3D) cppmodeFullScreen(this, m, CPPMODE_FS_PRIMARY);
+    else cppmodeFullScreen(this, 0, m);
     cppmodeGoFullScreen(gWindow);
 }
-void PApplet::fullScreen(int mode) {
-    if (displayWidth > 0 && displayHeight > 0) size(displayWidth, displayHeight, mode);
-    cppmodeGoFullScreen(gWindow);
-}
+void PApplet::fullScreen(int mode, int display) { cppmodeFullScreen(this, mode, display); cppmodeGoFullScreen(gWindow); }
+void PApplet::fullScreen(const char*, int display) { cppmodeFullScreen(this, 0, display); cppmodeGoFullScreen(gWindow); }
 void PApplet::frameRate(int fps){ targetFrameTime = 1.0/fps; }
 void PApplet::noLoop(){looping=false;}
 void PApplet::loop()  {looping=true;}
@@ -1771,9 +1814,44 @@ static float    g_lpTexW = 1, g_lpTexH = 1;
 static bool     g_lpTexAlpha = false;
 static bool lpEnsureImage(ProcessingBackend* be, PImage* img);
 static constexpr uint8_t LP_TOPO_TRIANGLES = 3;
+// cppmode-geocache: 3D shape meshes are kept by content and reused while they keep being drawn,
+// so a shape that only moves (the usual case) builds its mesh once. Unused ones go after 2 frames.
+struct LpGeoEntry { uint64_t geo; uint64_t lastUsed; ::std::vector<float> data; bool hasUV; };
+static ::std::unordered_map<uint64_t, LpGeoEntry> g_lpGeoCache;
+static uint64_t g_lpFrameNo = 0;
 static void lpFrameGeosFree() {
     for (uint64_t g : g_lpFrameGeos) processing_geometry_destroy(g);
     g_lpFrameGeos.clear();
+    g_lpFrameNo++;
+    for (auto it = g_lpGeoCache.begin(); it != g_lpGeoCache.end(); ) {
+        if (it->second.lastUsed + 2 < g_lpFrameNo) { processing_geometry_destroy(it->second.geo); it = g_lpGeoCache.erase(it); }
+        else ++it;
+    }
+}
+// data per vertex: normal (3), color (4), uv (2, only when hasUV), position (3)
+static uint64_t lpGeoCached(const ::std::vector<float>& d, bool hasUV) {
+    uint64_t h = 1469598103934665603ull ^ (hasUV ? 0x9e3779b97f4a7c15ull : 0);
+    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(d.data());
+    for (size_t i = 0; i < d.size() * sizeof(float); i++) { h ^= bytes[i]; h *= 1099511628211ull; }
+    auto it = g_lpGeoCache.find(h);
+    if (it != g_lpGeoCache.end() && it->second.hasUV == hasUV && it->second.data == d) {
+        it->second.lastUsed = g_lpFrameNo;
+        return it->second.geo;
+    }
+    uint64_t geo = processing_geometry_create(LP_TOPO_TRIANGLES);
+    if (!geo) return 0;
+    size_t stride = hasUV ? 12 : 10;
+    for (size_t i = 0; i + stride <= d.size(); i += stride) {
+        const float* q = &d[i];
+        processing_geometry_normal(geo, q[0], q[1], q[2]);
+        processing_geometry_color(geo, q[3], q[4], q[5], q[6]);
+        if (hasUV) processing_geometry_uv(geo, q[7], q[8]);
+        const float* pos = q + (hasUV ? 9 : 7);
+        processing_geometry_vertex(geo, pos[0], pos[1], pos[2]);
+    }
+    if (it != g_lpGeoCache.end()) g_lpFrameGeos.push_back(geo);  // hash collision: just this frame
+    else g_lpGeoCache[h] = {geo, g_lpFrameNo, d, hasUV};
+    return geo;
 }
 static void lpShapeOpen(uint64_t gid) {
     if (g_lpShapeOpen) return;
@@ -1807,8 +1885,7 @@ static void lpShapeDraw3D(uint64_t gid, int kind, float cr, float cg, float cb, 
     size_t i = 0;
     while (i < order.size()) {
         auto key = colKey(order[i]);
-        uint64_t geo = processing_geometry_create(LP_TOPO_TRIANGLES);
-        if (!geo) return;
+        ::std::vector<float> buf;  // cppmode-geocache
         for (; i < order.size() && colKey(order[i]) == key; i++) {
             const auto& tr = t[order[i]];
             const auto &A = v[tr[0]], &B = v[tr[1]], &C = v[tr[2]];
@@ -1820,15 +1897,15 @@ static void lpShapeDraw3D(uint64_t gid, int kind, float cr, float cg, float cb, 
             if (len > 0) { nx /= len; ny /= len; nz /= len; } else { nx = 0; ny = 0; nz = 1; }
             for (int j : tr) {
                 const auto& q = v[j];
-                if (q.hasN) processing_geometry_normal(geo, q.nx, q.ny, q.nz); else processing_geometry_normal(geo, nx, ny, nz);
-                processing_geometry_color(geo, lpSrgbToLinear(q.r), lpSrgbToLinear(q.g), lpSrgbToLinear(q.b), q.a);
-                processing_geometry_vertex(geo, q.x, q.y, q.z);
+                if (q.hasN) buf.insert(buf.end(), {q.nx, q.ny, q.nz}); else buf.insert(buf.end(), {nx, ny, nz});
+                buf.insert(buf.end(), {lpSrgbToLinear(q.r), lpSrgbToLinear(q.g), lpSrgbToLinear(q.b), q.a, q.x, q.y, q.z});
             }
         }
+        uint64_t geo = lpGeoCached(buf, false);
+        if (!geo) return;
         processing_set_fill(gid, lp_rgba(::std::get<0>(key), ::std::get<1>(key), ::std::get<2>(key), ::std::get<3>(key)));
         lpLitFillChanged(::std::get<0>(key), ::std::get<1>(key), ::std::get<2>(key), ::std::get<3>(key));
         processing_model(gid, geo);
-        g_lpFrameGeos.push_back(geo);
     }
     // back to the sketch's current fill
     processing_set_fill(gid, lp_rgba(cr, cg, cb, ca));
@@ -1865,8 +1942,7 @@ static void lpShapeDrawTex(uint64_t gid, int kind, bool doTint, float tr, float 
         if (g_lpTexAlpha || ta < 1.0f) processing_material_set_alpha_mode(mat, 2, 0.5f);
         mats[key] = mat;
     }
-    uint64_t geo = processing_geometry_create(LP_TOPO_TRIANGLES);
-    if (!geo) return;
+    ::std::vector<float> buf;  // cppmode-geocache
     for (const auto& tri : t) {
         const auto &A = v[tri[0]], &B = v[tri[1]], &C = v[tri[2]];
         float ux = B.x - A.x, uy = B.y - A.y, uz = B.z - A.z;
@@ -1876,16 +1952,15 @@ static void lpShapeDrawTex(uint64_t gid, int kind, bool doTint, float tr, float 
         if (len > 0) { nx /= len; ny /= len; nz /= len; } else { nx = 0; ny = 0; nz = 1; }
         for (int j : tri) {
             const auto& q = v[j];
-            if (q.hasN) processing_geometry_normal(geo, q.nx, q.ny, q.nz); else processing_geometry_normal(geo, nx, ny, nz);
-            processing_geometry_color(geo, 1.0f, 1.0f, 1.0f, 1.0f);
-            processing_geometry_uv(geo, q.u, q.v);
-            processing_geometry_vertex(geo, q.x, q.y, q.z);
+            if (q.hasN) buf.insert(buf.end(), {q.nx, q.ny, q.nz}); else buf.insert(buf.end(), {nx, ny, nz});
+            buf.insert(buf.end(), {1.0f, 1.0f, 1.0f, 1.0f, q.u, q.v, q.x, q.y, q.z});
         }
     }
+    uint64_t geo = lpGeoCached(buf, true);
+    if (!geo) return;
     processing_material(gid, mat);
     processing_model(gid, geo);
     processing_reset_material(gid);
-    g_lpFrameGeos.push_back(geo);
 }
 #else
 static void lpFrameGeosFree() {}
@@ -5117,7 +5192,19 @@ void PApplet::run(){
 #endif
     glfwWindowHint(GLFW_RESIZABLE,isResizable?GLFW_TRUE:GLFW_FALSE);
     glfwWindowHint(GLFW_STENCIL_BITS,8);
-    gWindow=glfwCreateWindow(winWidth,winHeight,g_sketchName.c_str(),nullptr,nullptr);
+    // cppmode-fscreate: fullScreen() in settings() creates the window on the monitor directly, so
+    // tiling window managers (i3, sway) never tile a normal window first and then resize it.
+    {
+        GLFWmonitor* fsMon = (g_fullScreenPending && g_fsDisplay >= 0) ? cppmodeFsMonitor() : nullptr;  // cppmode-fsdisplay
+        const GLFWvidmode* fsMode = fsMon ? glfwGetVideoMode(fsMon) : nullptr;
+        if (fsMode) {
+            glfwWindowHint(GLFW_REFRESH_RATE, fsMode->refreshRate);
+            gWindow = glfwCreateWindow(fsMode->width, fsMode->height, g_sketchName.c_str(), fsMon, nullptr);
+            g_fullScreenPending = false;
+        } else {
+            gWindow = glfwCreateWindow(winWidth, winHeight, g_sketchName.c_str(), nullptr, nullptr);
+        }
+    }
     if(!gWindow){
         const char* err="unknown"; (void)err;
         fprintf(stderr,"[ERR] glfwCreateWindow() failed: %s\n", err?err:"unknown");
