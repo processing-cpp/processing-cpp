@@ -1189,10 +1189,13 @@ void PApplet::fill(const PColor& c)      { fill(c.r, c.g, c.b, c.a); }
 void PApplet::stroke(const PColor& c)    { stroke(c.r, c.g, c.b, c.a); }
 void PApplet::background(const PColor& c){ background(c.r, c.g, c.b, c.a); }
 void PApplet::tint(const PColor& c)      { tint(c.r, c.g, c.b, c.a); }
+// cppmode-modemap: CppMode's mode numbers follow Java; libprocessing numbers them differently
+static inline uint8_t lpShapeMode(int m) { return m == CENTER ? 2 : m == RADIUS ? 3 : (uint8_t)m; }
+static inline uint8_t lpArcMode(int m)   { return m == PIE ? 2 : m == CHORD ? 1 : 0; }
 void PApplet::rectMode(int m)    {currentRectMode=m;
-    if(_backend) processing_rect_mode(_backend->graphics_id(),(uint8_t)m);}
+    if(_backend) processing_rect_mode(_backend->graphics_id(),lpShapeMode(m));}
 void PApplet::ellipseMode(int m) {currentEllipseMode=m;
-    if(_backend) processing_ellipse_mode(_backend->graphics_id(),(uint8_t)m);}
+    if(_backend) processing_ellipse_mode(_backend->graphics_id(),lpShapeMode(m));}
 
 // =============================================================================
 // 2D PRIMITIVES
@@ -1339,7 +1342,7 @@ void PApplet::arc(float cx, float cy, float w, float h, float startAngle, float 
 }
 
 void PApplet::arc(float cx, float cy, float w, float h, float startAngle, float endAngle, int mode) {
-    if (_backend) { _backend->arc(cx, cy, w, h, startAngle, endAngle, (uint8_t)mode); return; }
+    if (_backend) { _backend->arc(cx, cy, w, h, startAngle, endAngle, lpArcMode(mode)); return; }
     float rx = w, ry = h;
     resolveEllipse(cx, cy, rx, ry);
     int steps = 64;
@@ -6856,11 +6859,20 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
     glPopMatrix();
 }
 // cppmode-shapemode: Java's shapeMode() for where and how big shape() draws
+static void lpShapeBounds(const PShape& s) {  // cppmode-modemap
+    if (s.width > 0 || s.height > 0 || s.verts.empty()) return;
+    float minx = s.verts[0].x, maxx = minx, miny = s.verts[0].y, maxy = miny;
+    for (const auto& v : s.verts) { minx = ::std::min(minx, v.x); maxx = ::std::max(maxx, v.x);
+                                    miny = ::std::min(miny, v.y); maxy = ::std::max(maxy, v.y); }
+    const_cast<PShape&>(s).width = maxx - minx; const_cast<PShape&>(s).height = maxy - miny;
+}
 void PApplet::shape(const PShape& s,float x,float y) {
+    lpShapeBounds(s);
     if (shapeDrawMode == CENTER) { x -= s.width * 0.5f; y -= s.height * 0.5f; }
     drawPShape(s, x, y);
 }
 void PApplet::shape(const PShape& s,float x,float y,float w,float h) {
+    lpShapeBounds(s);
     if (shapeDrawMode == CORNERS)     { w -= x; h -= y; }
     else if (shapeDrawMode == CENTER) { x -= w * 0.5f; y -= h * 0.5f; }
     drawPShape(s, x, y, w, h);
