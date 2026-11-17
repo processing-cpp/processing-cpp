@@ -225,21 +225,23 @@ public:
     // 3D
     // Geometry is drawn when the frame flushes in end_draw(), so it has to outlive
     // the call. Keep one mesh per size and reuse it every frame.
+    // cppmode-perf: one unit box, scaled per call. A mesh per size grew forever and was rebuilt
+    // every frame when a sketch animated the size.
     void box(float w, float h, float d) override {
-        auto key = ::std::make_tuple(w, h, d);
-        auto it = _boxCache.find(key);
-        uint64_t geo = it != _boxCache.end() ? it->second
-                     : (_boxCache[key] = processing_geometry_box(w, h, d));
-        if (geo) processing_model(_graphics_id, geo); }
+        if (!_unitBox) _unitBox = processing_geometry_box(1, 1, 1);
+        push_matrix(); scale(w, h, d); processing_model(_graphics_id, _unitBox); pop_matrix();
+    }
     void sphereDetail(int ures, int vres) override { _sphU = ures < 3 ? 3 : ures; _sphV = vres < 2 ? 2 : vres; }
+    // cppmode-perf: one unit sphere per detail level, scaled per call
     void sphere(float r) override {
-        auto key = ::std::make_tuple(r, _sphU, _sphV);
-        auto it = _sphereCache.find(key);
-        uint64_t geo = it != _sphereCache.end() ? it->second
-                     : (_sphereCache[key] = processing_geometry_sphere(r, (uint32_t)_sphU, (uint32_t)_sphV));
-        if (geo) processing_model(_graphics_id, geo); }
-    ::std::map<::std::tuple<float, float, float>, uint64_t> _boxCache;
-    ::std::map<::std::tuple<float, int, int>, uint64_t> _sphereCache;
+        auto key = ::std::make_pair(_sphU, _sphV);
+        auto it = _unitSpheres.find(key);
+        uint64_t geo = it != _unitSpheres.end() ? it->second
+                     : (_unitSpheres[key] = processing_geometry_sphere(1, (uint32_t)_sphU, (uint32_t)_sphV));
+        push_matrix(); scale(r, r, r); processing_model(_graphics_id, geo); pop_matrix();
+    }
+    uint64_t _unitBox = 0;
+    ::std::map<::std::pair<int, int>, uint64_t> _unitSpheres;
     int _sphU = 30, _sphV = 30;
 
     // Transform
