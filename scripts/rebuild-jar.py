@@ -28,7 +28,7 @@ from os.path import expanduser
 
 SKETCHBOOK_JAR_DEST = os.path.expanduser("~/sketchbook/modes/CppMode/mode/CppMode.jar")
 TMP_DIR = os.path.join(tempfile.gettempdir(), "_cpp")
-def run(cmd, cwd=None):
+def run(cmd, cwd=None, stopOnFailure=True):
     print(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=cwd)
     if stopOnFailure:
