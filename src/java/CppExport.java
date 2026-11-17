@@ -970,6 +970,9 @@ public class CppExport {
       File binary = new File(dir, binName);
       File bundledBin = new File(usrBin, skName);
       copyFile(binary, bundledBin);
+      // cppmode-lpexport: libprocessing sits next to the binary inside the AppImage too ($ORIGIN rpath)
+      File lpLib = new File(dir, CppBuild.lpLibName());
+      if (lpLib.exists()) copyFile(lpLib, new File(usrBin, lpLib.getName()));
       bundledBin.setExecutable(true);
 
       // Copy data/ and font
