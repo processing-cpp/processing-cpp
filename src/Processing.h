@@ -717,6 +717,18 @@ public:
     }
 
     // Copy from another image with scaling
+    void copy(const PImage* src, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh) { if (src) copy(*src, sx, sy, sw, sh, dx, dy, dw, dh); }
+    void copy(int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh) {
+        PImage* tmp = this->copy(); copy(*tmp, sx, sy, sw, sh, dx, dy, dw, dh); delete tmp;
+    }
+    // Java's PImage.blend(): like copy(), but each pixel is mixed in with blendColor(mode)
+    void blend(const PImage& src, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode);
+    void blend(const PImage* src, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode) { if (src) blend(*src, sx, sy, sw, sh, dx, dy, dw, dh, mode); }
+    void blend(int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode) {
+        PImage* tmp = this->copy(); blend(*tmp, sx, sy, sw, sh, dx, dy, dw, dh, mode); delete tmp;
+    }
+    // writes the image to a file; the extension picks the format (png, jpg, bmp, tga, tif)
+    bool save(const ::std::string& filename) const;
     void copy(const PImage& src, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh) {
         for (int iy=0; iy<dh; iy++)
             for (int ix=0; ix<dw; ix++) {
@@ -1729,6 +1741,16 @@ inline ::std::vector<::std::string> split(const ::std::string& s, char d) {
     while (::std::getline(ss, t, d)) o.push_back(t);
     return o;
 }
+// Java's split(String, String): splits on the whole delimiter, keeps empty pieces.
+inline ::std::vector<::std::string> split(const ::std::string& s, const ::std::string& d) {
+    if (d.size() == 1) return split(s, d[0]);
+    ::std::vector<::std::string> o;
+    if (d.empty()) { for (char ch : s) o.push_back(::std::string(1, ch)); return o; }
+    size_t from = 0, at;
+    while ((at = s.find(d, from)) != ::std::string::npos) { o.push_back(s.substr(from, at - from)); from = at + d.size(); }
+    o.push_back(s.substr(from));
+    return o;
+}
 inline ::std::vector<::std::string> splitTokens(const ::std::string& s, const ::std::string& delims) {
     ::std::vector<::std::string> o; ::std::string cur;
     for (char c:s) {
@@ -2520,6 +2542,8 @@ public:
 // =============================================================================
 class String : public ::std::string {
 public:
+    // Java's String.hashCode(): s[0]*31^(n-1) + ... + s[n-1], wrapping like an int
+    int hashCode() const { unsigned int x = 0; for (unsigned char ch : *this) x = 31u * x + ch; return (int)x; }
     String() : ::std::string() {}
     String(const ::std::string& s) : ::std::string(s) {}
     String(const char* s) : ::std::string(s) {}
@@ -2938,7 +2962,8 @@ public:
     // Java-style
     void append(int v)            { data.push_back(v); }
     void add(int v)               { data.push_back(v); }
-    void add(int i, int v)        { data.insert(data.begin()+i,v); }
+    // Java: add(index, amount) adds to the value at index (it used to insert); insert() inserts.
+    void add(int i, int amount)   { data.at(i) += amount; }
     void set(int i, int v)        { data[i]=v; }
     int  get(int i)         const { return data[i]; }
     int  size()             const { return (int)data.size(); }
@@ -3030,6 +3055,12 @@ public:
     void addAt(int idx, int amount)  { data.at(idx) += amount; }
     void subAt(int idx, int amount)  { data.at(idx) -= amount; }
     void multAt(int idx, int amount) { data.at(idx) *= amount; }
+    // Java names (cppmode-parity2): add(index, amount) changes a value, insert() adds one
+    void sub(int idx, int amount)  { data.at(idx) -= amount; }
+    void mult(int idx, int amount) { data.at(idx) *= amount; }
+    void div(int idx, int amount)  { data.at(idx) /= amount; }
+    void insert(int idx, int value) { data.insert(data.begin() + idx, value); }
+    ::std::vector<int> array() const { return data; }
     void divAt(int idx, int amount)  { data.at(idx) /= amount; }
 
     int min() const {
@@ -3119,7 +3150,9 @@ public:
 
     void resize(int length) { data.resize((size_t)::std::max(0, length), 0.0f); }
 
-    void add(int i, float v) { data.insert(data.begin()+i, v); }
+    // Java: add(index, amount) adds to the value at index (it used to insert); insert() inserts.
+    void add(int i, float amount) { data.at(i) += amount; }
+    void insert(int i, float v) { data.insert(data.begin()+i, v); }
 
     bool hasValue(float v) const { return ::std::find(data.begin(),data.end(),v)!=data.end(); }
     bool contains(float v)  const { return hasValue(v); }
@@ -3160,6 +3193,10 @@ public:
     void addAt(int idx, float amount)  { data.at(idx) += amount; }
     void subAt(int idx, float amount)  { data.at(idx) -= amount; }
     void multAt(int idx, float amount) { data.at(idx) *= amount; }
+    void sub(int idx, float amount)  { data.at(idx) -= amount; }
+    void mult(int idx, float amount) { data.at(idx) *= amount; }
+    void div(int idx, float amount)  { data.at(idx) /= amount; }
+    ::std::vector<float> array() const { return data; }
     void divAt(int idx, float amount)  { data.at(idx) /= amount; }
 
     float min() const {
@@ -3240,6 +3277,11 @@ public:
 
     void add(const ::std::string& v)            { data.push_back(v); }
     void add(int i, const ::std::string& v)     { data.insert(data.begin()+i, v); }
+    void insert(int i, const ::std::string& v)  { data.insert(data.begin()+i, v); }
+    void upper() { for (auto& s : data) for (auto& ch : s) ch = (char)::std::toupper((unsigned char)ch); }
+    void lower() { for (auto& s : data) for (auto& ch : s) ch = (char)::std::tolower((unsigned char)ch); }
+    void sortReverse() { ::std::sort(data.begin(), data.end(), [](const ::std::string& x, const ::std::string& y) { return y < x; }); }
+    ::std::vector<::std::string> array() const { return data; }
     bool contains(const ::std::string& v) const { return hasValue(v); }
 
     void push(const ::std::string& v) { append(v); }
@@ -3712,43 +3754,114 @@ public:
 // PGraphics method implementations (after all Processing function declarations)
 // =============================================================================
 
-class IntDict {
+// cppmode-parity2: IntDict / FloatDict / StringDict follow Java: keys keep insertion order
+// until a sort*() call, and the full method set is here (increment, add, sortValues, ...).
+template<typename V>
+class CppmodeDict {
+protected:
+    ::std::vector<::std::string> keys_;
+    ::std::vector<V> vals_;
+    ::std::unordered_map<::std::string, int> index_;
+    void reindex() { index_.clear(); for (int i = 0; i < (int)keys_.size(); i++) index_[keys_[i]] = i; }
+    int find(const ::std::string& k) const { auto it = index_.find(k); return it == index_.end() ? -1 : it->second; }
+    void sortBy(bool byValue, bool reverse) {
+        ::std::vector<int> order(keys_.size());
+        for (int i = 0; i < (int)order.size(); i++) order[i] = i;
+        ::std::stable_sort(order.begin(), order.end(), [&](int x, int y) {
+            if (byValue) return reverse ? vals_[y] < vals_[x] : vals_[x] < vals_[y];
+            return reverse ? keys_[y] < keys_[x] : keys_[x] < keys_[y];
+        });
+        ::std::vector<::std::string> k2; ::std::vector<V> v2;
+        for (int i : order) { k2.push_back(keys_[i]); v2.push_back(vals_[i]); }
+        keys_.swap(k2); vals_.swap(v2); reindex();
+    }
 public:
-    ::std::map<::std::string,int> data;
-    void set(const ::std::string& k, int v)               { data[k]=v; }
-    int  get(const ::std::string& k, int def=0) const     { auto it=data.find(k); return it!=data.end()?it->second:def; }
-    bool hasKey(const ::std::string& k)         const     { return data.count(k)>0; }
-    void remove(const ::std::string& k)                   { data.erase(k); }
-    int  size()                               const     { return (int)data.size(); }
-    void clear()                                        { data.clear(); }
-    ::std::vector<::std::string> keys() const               { ::std::vector<::std::string> r; for(auto& p:data) r.push_back(p.first); return r; }
-    int& operator[](const ::std::string& k)               { return data[k]; }
+    int  size() const { return (int)keys_.size(); }
+    bool isEmpty() const { return keys_.empty(); }
+    void clear() { keys_.clear(); vals_.clear(); index_.clear(); }
+    bool hasKey(const ::std::string& k) const { return find(k) >= 0; }
+    void set(const ::std::string& k, const V& v) {
+        int i = find(k);
+        if (i >= 0) vals_[i] = v;
+        else { index_[k] = (int)keys_.size(); keys_.push_back(k); vals_.push_back(v); }
+    }
+    V get(const ::std::string& k) const {
+        int i = find(k);
+        if (i < 0) throw ::std::out_of_range("No key named '" + k + "'");
+        return vals_[i];
+    }
+    V get(const ::std::string& k, const V& alternate) const { int i = find(k); return i < 0 ? alternate : vals_[i]; }
+    V& operator[](const ::std::string& k) { if (find(k) < 0) set(k, V()); return vals_[find(k)]; }
+    ::std::string key(int i) const { return keys_.at(i); }
+    V value(int i) const { return vals_.at(i); }
+    int index(const ::std::string& k) const { return find(k); }
+    const ::std::vector<::std::string>& keys() const { return keys_; }
+    const ::std::vector<V>& values() const { return vals_; }
+    ::std::vector<::std::string> keyArray() const { return keys_; }
+    ::std::vector<V> valueArray() const { return vals_; }
+    V remove(const ::std::string& k) {
+        int i = find(k);
+        if (i < 0) throw ::std::out_of_range("No key named '" + k + "'");
+        return removeIndex(i);
+    }
+    V removeIndex(int i) {
+        V v = vals_.at(i);
+        keys_.erase(keys_.begin() + i); vals_.erase(vals_.begin() + i); reindex();
+        return v;
+    }
+    void sortKeys()          { sortBy(false, false); }
+    void sortKeysReverse()   { sortBy(false, true); }
+    void sortValues()        { sortBy(true, false); }
+    void sortValuesReverse() { sortBy(true, true); }
+    void print() const { for (int i = 0; i < size(); i++) { ::std::cout << keys_[i] << " = " << vals_[i] << "\n"; } ::std::cout.flush(); }
 };
 
-class FloatDict {
+template<typename V>
+class CppmodeNumberDict : public CppmodeDict<V> {
+    using B = CppmodeDict<V>;
+    int extreme(bool wantMax) const {
+        if (B::keys_.empty()) return -1;
+        int best = 0;
+        for (int i = 1; i < (int)B::vals_.size(); i++)
+            if (wantMax ? B::vals_[i] > B::vals_[best] : B::vals_[i] < B::vals_[best]) best = i;
+        return best;
+    }
+    V& slot(const ::std::string& k) { if (!B::hasKey(k)) B::set(k, V()); return B::vals_[B::find(k)]; }
 public:
-    ::std::map<::std::string,float> data;
-    void  set(const ::std::string& k, float v)                { data[k]=v; }
-    float get(const ::std::string& k, float def=0)  const     { auto it=data.find(k); return it!=data.end()?it->second:def; }
-    bool  hasKey(const ::std::string& k)            const     { return data.count(k)>0; }
-    void  remove(const ::std::string& k)                      { data.erase(k); }
-    int   size()                                  const     { return (int)data.size(); }
-    void  clear()                                           { data.clear(); }
-    ::std::vector<::std::string> keys() const                   { ::std::vector<::std::string> r; for(auto& p:data) r.push_back(p.first); return r; }
-    float& operator[](const ::std::string& k)                 { return data[k]; }
+    void add(const ::std::string& k, V amount)  { slot(k) += amount; }
+    void sub(const ::std::string& k, V amount)  { slot(k) -= amount; }
+    void mult(const ::std::string& k, V amount) { slot(k) *= amount; }
+    void div(const ::std::string& k, V amount)  { slot(k) /= amount; }
+    int minIndex() const { return extreme(false); }
+    int maxIndex() const { return extreme(true); }
+    ::std::string minKey() const { int i = minIndex(); return i < 0 ? ::std::string() : B::keys_[i]; }
+    ::std::string maxKey() const { int i = maxIndex(); return i < 0 ? ::std::string() : B::keys_[i]; }
+    V minValue() const { int i = minIndex(); if (i < 0) throw ::std::runtime_error("minValue() on an empty dict"); return B::vals_[i]; }
+    V maxValue() const { int i = maxIndex(); if (i < 0) throw ::std::runtime_error("maxValue() on an empty dict"); return B::vals_[i]; }
 };
 
-class StringDict {
+class IntDict : public CppmodeNumberDict<int> {
 public:
-    ::std::map<::std::string,::std::string> data;
-    void        set(const ::std::string& k, const ::std::string& v)              { data[k]=v; }
-    ::std::string get(const ::std::string& k, const ::std::string& def="") const   { auto it=data.find(k); return it!=data.end()?it->second:def; }
-    bool        hasKey(const ::std::string& k)                          const   { return data.count(k)>0; }
-    void        remove(const ::std::string& k)                                  { data.erase(k); }
-    int         size()                                                const   { return (int)data.size(); }
-    void        clear()                                                       { data.clear(); }
-    ::std::vector<::std::string> keys() const                                     { ::std::vector<::std::string> r; for(auto& p:data) r.push_back(p.first); return r; }
-    ::std::string& operator[](const ::std::string& k)                            { return data[k]; }
+    IntDict() = default;
+    void increment(const ::std::string& k) { add(k, 1); }
+    void increment(const IntDict& other) { for (int i = 0; i < other.size(); i++) add(other.key(i), other.value(i)); }
+    int  sum() const { long long s = 0; for (int v : vals_) s += v; return (int)s; }
+    long long sumLong() const { long long s = 0; for (int v : vals_) s += v; return s; }
+    IntDict copy() const { return *this; }
+};
+
+class FloatDict : public CppmodeNumberDict<float> {
+public:
+    FloatDict() = default;
+    float sum() const { double s = 0; for (float v : vals_) s += v; return (float)s; }
+    double sumDouble() const { double s = 0; for (float v : vals_) s += v; return s; }
+    FloatDict copy() const { return *this; }
+};
+
+class StringDict : public CppmodeDict<::std::string> {
+public:
+    StringDict() = default;
+    StringDict copy() const { return *this; }
 };
 
 // =============================================================================
@@ -4791,6 +4904,18 @@ struct PApplet {
     void setTitle(const ::std::string& t) { windowTitle(t); }
     void setLocation(int x, int y)      { windowMove(x,y); }
     void setResizable(bool r)           { windowResizable(r); }
+    bool isLooping() const { return looping; }
+    // Java's surface object: surface.setTitle("..."), surface.setSize(w, h), ...
+    struct CppmodeSurface {
+        PApplet* app;
+        void setTitle(const ::std::string& t) { app->windowTitle(t); }
+        void setResizable(bool r)             { app->windowResizable(r); }
+        void setLocation(int x, int y)        { app->windowMove(x, y); }
+        void setSize(int w, int h)            { app->windowResize(w, h); }
+        void setVisible(bool)                 {}
+        void setAlwaysOnTop(bool)             {}
+        void setIcon(PImage* img)             { app->setWindowIcon(img); }
+    } surface{this};
     void setClipboard(const ::std::string& s);
     ::std::string getClipboard();
     void setWindowIcon(PImage* img);
@@ -4989,6 +5114,10 @@ struct PApplet {
 
     // ── Matrix ───────────────────────────────────────────────────────────────
     void resetMatrix();
+    // 2D form (Java's applyMatrix(n00, n01, n02, n10, n11, n12)) maps onto the 4x4 one
+    void applyMatrix(float n00, float n01, float n02, float n10, float n11, float n12) {
+        applyMatrix(n00, n01, 0, n02,  n10, n11, 0, n12,  0, 0, 1, 0,  0, 0, 0, 1);
+    }
     void applyMatrix(float n00,float n01,float n02,float n03,
                      float n10,float n11,float n12,float n13,
                      float n20,float n21,float n22,float n23,
@@ -5196,6 +5325,17 @@ struct PApplet {
     static float min(float a,float b)          { return a<b?a:b; }
     static float max(float a,float b,float c)  { float m=a>b?a:b; return m>c?m:c; }
     static float min(float a,float b,float c)  { float m=a<b?a:b; return m<c?m:c; }
+    // Java's min(float[]) / max(int[]): the smallest or largest element
+    template<class T> static T min(const ::std::vector<T>& v) {
+        if (v.empty()) throw ::std::runtime_error("Cannot use min() on an empty array.");
+        return *::std::min_element(v.begin(), v.end());
+    }
+    template<class T> static T max(const ::std::vector<T>& v) {
+        if (v.empty()) throw ::std::runtime_error("Cannot use max() on an empty array.");
+        return *::std::max_element(v.begin(), v.end());
+    }
+    template<class T> static T min(const Array<T>& a) { return min(a.rawData()); }
+    template<class T> static T max(const Array<T>& a) { return max(a.rawData()); }
     static bool isNaN(float v)      { return ::std::isnan(v); }
     static bool isInfinite(float v) { return ::std::isinf(v); }
     template<typename A,typename B,typename C,typename D,typename=::std::enable_if_t<::Processing::_is_numeric_v<A>&&::Processing::_is_numeric_v<B>&&::Processing::_is_numeric_v<C>&&::Processing::_is_numeric_v<D>>>
@@ -5234,6 +5374,7 @@ struct PApplet {
     static ::std::string str(long long v) { return ::std::to_string(v); }
     static ::std::string str(unsigned long long v) { return ::std::to_string(v); }
     static ::std::vector<::std::string> split(const ::std::string& s, char d);
+    static ::std::vector<::std::string> split(const ::std::string& s, const ::std::string& d) { return ::Processing::split(s, d); }
     static ::std::vector<::std::string> splitTokens(const ::std::string& s, const ::std::string& d);
     static ::std::string join(const ::std::vector<::std::string>& v, const ::std::string& sep);
     static ::std::string trim(const ::std::string& s);
@@ -5292,6 +5433,9 @@ struct PApplet {
     static JSONValue   loadJSONArray(const ::std::string& path);
     static bool saveJSONObject(const ::std::string& path, const JSONValue& v, int indent=2);
     static bool saveJSONArray(const ::std::string& path,  const JSONValue& v, int indent=2);
+    // Java order: saveJSONObject(json, filename)
+    static bool saveJSONObject(const JSONValue& v, const ::std::string& path, int indent=2) { return saveJSONObject(path, v, indent); }
+    static bool saveJSONArray(const JSONValue& v, const ::std::string& path, int indent=2)  { return saveJSONArray(path, v, indent); }
     static JSONValue parseJSONObject(const ::std::string& s) { return parseJSON(s); }
     static JSONValue parseJSONArray(const ::std::string& s)  { return parseJSON(s); }
 
@@ -5303,6 +5447,9 @@ struct PApplet {
     // ── Table ────────────────────────────────────────────────────────────────
     static Table* loadTable(const ::std::string& path, const ::std::string& options="header");
     static bool   saveTable(const ::std::string& path, const Table& t, const ::std::string& ext="csv");
+    // Java order: saveTable(table, filename)
+    static bool   saveTable(const Table& t, const ::std::string& path, const ::std::string& ext="csv") { return saveTable(path, t, ext); }
+    static bool   saveTable(const Table* t, const ::std::string& path, const ::std::string& ext="csv") { return t && saveTable(path, *t, ext); }
 
     // ── No-ops ───────────────────────────────────────────────────────────────
     static void beginRecord(const ::std::string&, const ::std::string&) {}

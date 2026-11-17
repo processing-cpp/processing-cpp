@@ -7486,3 +7486,42 @@ bool PApplet::saveBytes(const ::std::string& path, const ::std::vector<unsigned 
 #pragma warning(pop)
 #endif
 
+
+// cppmode-parity2: PImage::blend and PImage::save (both renderers, plain CPU code)
+namespace Processing {
+void PImage::blend(const PImage& src, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode) {
+    if (dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0) return;
+    for (int iy = 0; iy < dh; iy++)
+        for (int ix = 0; ix < dw; ix++) {
+            int x = dx + ix, y = dy + iy;
+            if (x < 0 || y < 0 || x >= width || y >= height) continue;
+            int srcX = sx + (int)(ix * (float)sw / dw), srcY = sy + (int)(iy * (float)sh / dh);
+            set(x, y, blendColor(get(x, y), src.get(srcX, srcY), mode));
+        }
+    dirty = true;
+}
+bool PImage::save(const ::std::string& filename) const {
+    if (width <= 0 || height <= 0 || (int)pixels.size() < width * height) return false;
+    ::std::string fn = filename;
+    if (!fn.empty() && fn[0] != '/') {
+        ::std::string base = processingEnvironmentVariable("PROCESSING_SKETCH_PATH");
+        if (!base.empty()) fn = base + "/" + fn;
+    }
+    ::std::vector<unsigned char> rgba((size_t)width * height * 4);
+    for (size_t i = 0; i < (size_t)width * height; i++) {
+        unsigned int p = pixels[i];
+        rgba[i*4+0] = (p >> 16) & 255; rgba[i*4+1] = (p >> 8) & 255; rgba[i*4+2] = p & 255; rgba[i*4+3] = (p >> 24) & 255;
+    }
+    ::std::vector<unsigned char> rgb((size_t)width * height * 3);
+    for (size_t i = 0; i < (size_t)width * height; i++) { rgb[i*3] = rgba[i*4]; rgb[i*3+1] = rgba[i*4+1]; rgb[i*3+2] = rgba[i*4+2]; }
+    ::std::string ext = fn.size() >= 4 ? fn.substr(fn.size() - 4) : "";
+    for (auto& ch : ext) ch = (char)::std::tolower((unsigned char)ch);
+    int ok = 0;
+    if (ext == ".jpg" || ext == "jpeg")      ok = stbi_write_jpg(fn.c_str(), width, height, 3, rgb.data(), 95);
+    else if (ext == ".bmp")                  ok = stbi_write_bmp(fn.c_str(), width, height, 3, rgb.data());
+    else if (ext == ".tga" || ext == ".tif" || ext == "tiff") ok = cppmodeWriteTgaOrTiff(fn.c_str(), ext, width, height, rgb.data());
+    else { if (ext != ".png") fn += ".png"; ok = stbi_write_png(fn.c_str(), width, height, 4, rgba.data(), width * 4); }
+    if (!ok) fprintf(stderr, "PImage.save: could not write %s\n", fn.c_str());
+    return ok != 0;
+}
+} // namespace Processing
