@@ -1,3 +1,4 @@
+#include <filesystem>
 #pragma once
 #include <charconv>
 #include <cmath>
@@ -1482,6 +1483,13 @@ inline ::std::string dataPath(const ::std::string& where="") {
 }
 inline ::std::string sketchFile(const ::std::string& where) { return sketchPath(where); }
 inline ::std::string dataFile(const ::std::string& where)   { return dataPath(where); }
+// cppmode-parity1: savePath() is sketchPath() that also creates the folders, like Java.
+inline ::std::string savePath(const ::std::string& where) {
+    ::std::string p = sketchPath(where);
+    auto slash = p.find_last_of("/\\");
+    if (slash != ::std::string::npos) { ::std::error_code ec; ::std::filesystem::create_directories(p.substr(0, slash), ec); }
+    return p;
+}
 
 inline ::std::tm processingLocalTime(::std::time_t t) {
     ::std::tm result{};
@@ -1705,7 +1713,11 @@ inline float randomGaussian() {
 }
 inline int   parseInt(const ::std::string& s)   { try { return ::std::stoi(s); } catch(...) { return 0; } }
 inline float parseFloat(const ::std::string& s) { try { return ::std::stof(s); } catch(...) { return 0.f; } }
-inline bool  parseBoolean(const ::std::string& s){ return s=="true"||s=="True"||s=="TRUE"||s=="1"; }
+// Java: only "true" (any case) is true, everything else (including "1") is false.
+inline bool  parseBoolean(const ::std::string& s){ ::std::string t; for (char c : s) t += (char)::std::tolower((unsigned char)c); return t == "true"; }
+inline bool  parseBoolean(int v) { return v != 0; }
+inline char  parseChar(int v) { return (char)v; }
+inline ::std::vector<char> parseChar(const ::std::vector<int>& v) { ::std::vector<char> r; for (int x : v) r.push_back((char)x); return r; }
 inline ::std::string toUpperCase(::std::string s) { for(auto& c:s) c=static_cast<char>(::std::toupper(static_cast<unsigned char>(c))); return s; }
 inline ::std::string toLowerCase(::std::string s) { for(auto& c:s) c=static_cast<char>(::std::tolower(static_cast<unsigned char>(c))); return s; }
 inline ::std::string trim(const ::std::string& s) {
@@ -1957,6 +1969,8 @@ namespace _api {
     void size(int,int,int);
     void fullScreen();
     void fullScreen(int);
+    void fullScreen(int,int);
+    void fullScreen(const char*,int);
     void line(float,float,float,float);
     void line(float,float,float,float,float,float);
     void rect(float,float,float,float);
@@ -2238,6 +2252,8 @@ public:
     bool operator!=(::std::nullptr_t) const { return !path.empty(); }
 };
 inline ::std::ostream& operator<<(::std::ostream& o, const File& f) { return o << f.path; }
+// cppmode-null: Java's null, so "selection == null" and "img = null" compile as written.
+constexpr ::std::nullptr_t null = nullptr;
 struct JSONValue; struct JSONObject; struct JSONArray;
 using JSONObjectMap = ::std::map<::std::string, JSONValue>;
 using JSONArrayVec  = ::std::vector<JSONValue>;
@@ -2763,7 +2779,7 @@ class System {
 public:
     static long long currentTimeMillis() {
         using namespace ::std::chrono;
-        return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+        return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();  // Java: ms since 1970
     }
     static long long nanoTime() {
         using namespace ::std::chrono;
@@ -2774,11 +2790,13 @@ public:
         template<class T> void println(const T& v) { ::std::cout << v << "\n"; ::std::cout.flush(); }
         void println() { ::std::cout << "\n"; }
         template<class T> void print(const T& v) { ::std::cout << v; ::std::cout.flush(); }
-    } out;
+    };
+    static inline _Out out{};  // cppmode-statics: static, so System.out.println(...) works
     struct _Err {
         template<class T> void println(const T& v) { ::std::cerr << v << "\n"; }
         template<class T> void print(const T& v) { ::std::cerr << v; }
-    } err;
+    };
+    static inline _Err err{};
 };
 
 // Java Math class -- static methods for sketches that use Math.sin() etc.
@@ -2798,12 +2816,30 @@ public:
     static float cos(float x)   { return ::std::cos(x); }
     static float tan(float x)   { return ::std::tan(x); }
     static float atan2(float y, float x) { return ::std::atan2(y,x); }
+    static int abs(int x) { return x < 0 ? -x : x; }
+    static int min(int a, int b) { return a < b ? a : b; }
+    static int max(int a, int b) { return a > b ? a : b; }
+    static double abs(double x) { return ::std::abs(x); }
+    static double min(double a, double b) { return a < b ? a : b; }
+    static double max(double a, double b) { return a > b ? a : b; }
+    static float asin(float x) { return ::std::asin(x); }
+    static float acos(float x) { return ::std::acos(x); }
+    static float atan(float x) { return ::std::atan(x); }
+    static float signum(float x) { return (float)((x > 0) - (x < 0)); }
+    static float hypot(float a, float b) { return ::std::hypot(a, b); }
+    static float toRadians(float d) { return d * 3.14159265358979323846f / 180.f; }
+    static float toDegrees(float r) { return r * 180.f / 3.14159265358979323846f; }
+    static double random() { return ::std::rand() / (RAND_MAX + 1.0); }
     static constexpr float PI = 3.14159265358979323846f;
     static constexpr float E  = 2.71828182845904523536f;
 };
 
 class Integer : public NumberWrapperBase<int> {
 public:
+    static constexpr int MAX_VALUE = 2147483647, MIN_VALUE = -2147483647 - 1;
+    static String toString(int v) { return String(::std::to_string(v)); }
+    static String toHexString(int v) { char b[16]; snprintf(b, sizeof b, "%x", (unsigned)v); return String(b); }
+    static String toBinaryString(int v) { ::std::string r; unsigned u = (unsigned)v; do { r.insert(r.begin(), char('0' + (u & 1))); u >>= 1; } while (u); return String(r); }
     Integer() : NumberWrapperBase<int>() {}
     Integer(int val) : NumberWrapperBase<int>(val) {}
     explicit Integer(const ::std::string& s) : NumberWrapperBase<int>(::std::stoi(s)) {}
@@ -2815,6 +2851,10 @@ public:
 
 class Float : public NumberWrapperBase<float> {
 public:
+    static constexpr float MAX_VALUE = 3.4028235e38f, MIN_VALUE = 1.4e-45f;
+    static constexpr float POSITIVE_INFINITY = __builtin_huge_valf(), NEGATIVE_INFINITY = -__builtin_huge_valf(), NaN = __builtin_nanf("");
+    static bool isNaN(float v) { return v != v; }
+    static bool isInfinite(float v) { return v == POSITIVE_INFINITY || v == NEGATIVE_INFINITY; }
     Float() : NumberWrapperBase<float>() {}
     Float(float val) : NumberWrapperBase<float>(val) {}
     explicit Float(const ::std::string& s) : NumberWrapperBase<float>(::std::stof(s)) {}
@@ -2826,6 +2866,9 @@ public:
 
 class Double : public NumberWrapperBase<double> {
 public:
+    static constexpr double MAX_VALUE = 1.7976931348623157e308, MIN_VALUE = 4.9e-324;
+    static constexpr double POSITIVE_INFINITY = __builtin_huge_val(), NEGATIVE_INFINITY = -__builtin_huge_val(), NaN = __builtin_nan("");
+    static bool isNaN(double v) { return v != v; }
     Double() : NumberWrapperBase<double>() {}
     Double(double val) : NumberWrapperBase<double>(val) {}
     explicit Double(const ::std::string& s) : NumberWrapperBase<double>(::std::stod(s)) {}
@@ -2837,6 +2880,7 @@ public:
 
 class Long : public NumberWrapperBase<long> {
 public:
+    static constexpr long long MAX_VALUE = 9223372036854775807LL, MIN_VALUE = -9223372036854775807LL - 1;
     Long() : NumberWrapperBase<long>() {}
     Long(long val) : NumberWrapperBase<long>(val) {}
     explicit Long(const ::std::string& s) : NumberWrapperBase<long>(::std::stol(s)) {}
@@ -3717,6 +3761,22 @@ public:
 
     ::std::vector<Vertex>  verts;
     ::std::vector<PShape>  children;
+    // cppmode-javashare: like Java, a group shares the shapes added to it. Each child keeps a link to
+    // the sketch's own shape while that shape exists, and falls back to its stored copy afterwards.
+    struct LiveTok {
+        ::std::shared_ptr<char> a = ::std::make_shared<char>(0);
+        LiveTok() = default;
+        LiveTok(const LiveTok&) : a(::std::make_shared<char>(0)) {}   // a copy is a different shape
+        LiveTok& operator=(const LiveTok&) { return *this; }          // assignment keeps this shape's identity
+    };
+    LiveTok liveTok;
+    struct ChildLink { PShape* ptr = nullptr; ::std::weak_ptr<char> alive; };
+    ::std::vector<ChildLink> childLinks;   // parallel to children
+    PShape* liveChild(size_t i) {
+        if (i < childLinks.size() && childLinks[i].ptr && !childLinks[i].alive.expired()) return childLinks[i].ptr;
+        return &children[i];
+    }
+    const PShape& childAt(size_t i) const { return *const_cast<PShape*>(this)->liveChild(i); }
     int  kind   = -1;
     bool closed = false;
     bool visible = true;
@@ -3736,7 +3796,8 @@ public:
     ::std::vector<float> params; // for primitive shapes (ELLIPSE, RECT, etc.)
     int prim = 0;  // cppmode-pshapeprim: RECT, ELLIPSE, ARC, ... (0 = not a primitive)
     void vertex(float x,float y,float z=0,float u=0,float v=0) { verts.push_back({x,y,z,u,v}); }
-    void addChild(const PShape& s)    { children.push_back(s); }
+    void addChild(const PShape& s)    { children.push_back(s); childLinks.push_back({}); }
+    void addChild(PShape& s)          { children.push_back(s); childLinks.push_back({&s, s.liveTok.a}); }
     // cppmode-pshape: Java's PShape style and contour methods (0..255, like the default colorMode)
     void fill(float gray)                          { fill(gray, gray, gray, 255); }
     void fill(float gray, float a)                 { fill(gray, gray, gray, a); }
@@ -3756,14 +3817,15 @@ public:
                                                      subpathStarts.push_back((int)verts.size()); }
     void endContour()                              {}
     void addChild(const PShape* s)    { if (s) addChild(*s); }
+    void addChild(PShape* s)          { if (s) addChild(*s); }
     ::std::string name; // id/name attribute from SVG
     ::std::vector<int> subpathStarts; // subpath start indices for multi-part fills
     ::std::vector<Vertex> anchorVerts; // raw anchor points (M/L/C endpoints only) for getVertex()
 
-    PShape* getChild(int i)  { return i>=0 && i<(int)children.size()?&children[static_cast<size_t>(i)]:nullptr; }
+    PShape* getChild(int i)  { return i>=0 && i<(int)children.size()?liveChild(static_cast<size_t>(i)):nullptr; }
     PShape* getChild(const ::std::string& n) {
-        for(auto& c:children) if(c.name==n) return &c;
-        for(auto& c:children){ PShape* r=c.getChild(n); if(r) return r; }
+        for(size_t i=0;i<children.size();i++) if(liveChild(i)->name==n) return liveChild(i);
+        for(size_t i=0;i<children.size();i++){ PShape* r=liveChild(i)->getChild(n); if(r) return r; }
         // Return a static empty shape rather than nullptr to prevent crashes
         static PShape _empty;
         fprintf(stderr,"[PShape] getChild('%s') not found\n", n.c_str());
@@ -3804,7 +3866,45 @@ public:
     // Transforms apply to the whole shape and its children when drawn; vertices stay as defined.
     float mtx[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
     bool  hasMtx = false;
+    // a group passes its transform on to its children, outermost, the way Java moves their geometry
+    void mtxPre(const float* t) {
+        for (size_t i = 0; i < children.size(); i++) {
+            children[i].mtxPre(t);
+            PShape* o = liveChild(i);
+            if (o != &children[i]) o->mtxPre(t);
+        }
+        float r[16];
+        for (int col = 0; col < 4; col++) for (int row = 0; row < 4; row++) {
+            float s2 = 0; for (int k = 0; k < 4; k++) s2 += t[k * 4 + row] * mtx[col * 4 + k];
+            r[col * 4 + row] = s2; }
+        for (int i = 0; i < 16; i++) mtx[i] = r[i];
+        hasMtx = true;
+    }
+    static bool mtxInvert(const float* m, float* out) {
+        float inv[16];
+        inv[0]  =  m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+        inv[4]  = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+        inv[8]  =  m[4]*m[9]*m[15]  - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+        inv[12] = -m[4]*m[9]*m[14]  + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+        inv[1]  = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10];
+        inv[5]  =  m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10];
+        inv[9]  = -m[0]*m[9]*m[15]  + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9];
+        inv[13] =  m[0]*m[9]*m[14]  - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9];
+        inv[2]  =  m[1]*m[6]*m[15]  - m[1]*m[7]*m[14]  - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7]  - m[13]*m[3]*m[6];
+        inv[6]  = -m[0]*m[6]*m[15]  + m[0]*m[7]*m[14]  + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7]  + m[12]*m[3]*m[6];
+        inv[10] =  m[0]*m[5]*m[15]  - m[0]*m[7]*m[13]  - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7]  - m[12]*m[3]*m[5];
+        inv[14] = -m[0]*m[5]*m[14]  + m[0]*m[6]*m[13]  + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6]  + m[12]*m[2]*m[5];
+        inv[3]  = -m[1]*m[6]*m[11]  + m[1]*m[7]*m[10]  + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7]   + m[9]*m[3]*m[6];
+        inv[7]  =  m[0]*m[6]*m[11]  - m[0]*m[7]*m[10]  - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7]   - m[8]*m[3]*m[6];
+        inv[11] = -m[0]*m[5]*m[11]  + m[0]*m[7]*m[9]   + m[4]*m[1]*m[11] - m[4]*m[3]*m[9]  - m[8]*m[1]*m[7]   + m[8]*m[3]*m[5];
+        inv[15] =  m[0]*m[5]*m[10]  - m[0]*m[6]*m[9]   - m[4]*m[1]*m[10] + m[4]*m[2]*m[9]  + m[8]*m[1]*m[6]   - m[8]*m[2]*m[5];
+        float det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+        if (det == 0) return false;
+        for (int i = 0; i < 16; i++) out[i] = inv[i] / det;
+        return true;
+    }
     void mtxMul(const float* t) {
+        if (!children.empty()) { mtxPre(t); return; }  // group: Java moves the children
         float r[16];
         for (int col = 0; col < 4; col++) for (int row = 0; row < 4; row++) {
             float s2 = 0; for (int k = 0; k < 4; k++) s2 += mtx[k * 4 + row] * t[col * 4 + k];
@@ -3829,7 +3929,13 @@ public:
     void rotateX(float a)                          { rotate(a, 1, 0, 0); }
     void rotateY(float a)                          { rotate(a, 0, 1, 0); }
     void rotateZ(float a)                          { rotate(a, 0, 0, 1); }
-    void resetMatrix()                             { for (int i = 0; i < 16; i++) mtx[i] = (i % 5 == 0) ? 1.0f : 0.0f; hasMtx = false; }
+    void resetMatrix() {
+        // a group undoes what its transforms did to the children, like Java
+        float inv[16];
+        if (!children.empty() && hasMtx && mtxInvert(mtx, inv)) mtxPre(inv);
+        for (int i = 0; i < 16; i++) mtx[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+        hasMtx = false;
+    }
     bool  isVisible() const                        { return visible; }
     float getWidth() const                         { return width; }
     float getHeight() const                        { return height; }
@@ -3931,7 +4037,17 @@ public:
 inline ::std::ifstream* createInput(const ::std::string& path)  { return new ::std::ifstream(path,::std::ios::binary); }
 inline ::std::ofstream* createOutput(const ::std::string& path) { return new ::std::ofstream(path,::std::ios::binary); }
 inline bool saveStream(const ::std::string& path, const ::std::vector<unsigned char>& data) { return saveBytes(path,data); }
-inline void launch(const ::std::string& path) { system(path.c_str()); }
+// Java's launch() opens a file, folder or URL with its default app and returns right away.
+inline void launch(const ::std::string& path) {
+    ::std::string q = "\"" + path + "\"";
+#if defined(_WIN32)
+    ::std::system(("start \"\" " + q).c_str());
+#elif defined(__APPLE__)
+    ::std::system(("open " + q + " &").c_str());
+#elif !defined(__EMSCRIPTEN__)
+    ::std::system(("xdg-open " + q + " >/dev/null 2>&1 &").c_str());
+#endif
+}
 
 // Stubs (record/raw are not yet implemented)
 inline void beginRecord(const ::std::string&, const ::std::string&) {}
@@ -4180,13 +4296,13 @@ inline PVector createVector(float x, float y, float z=0) { return PVector(x, y, 
 // ---------------------------------------------------------------------------
 #include <type_traits>
 
-// line()
-template<typename A,typename B,typename C,typename D,
-    typename=::std::enable_if_t<::Processing::_is_numeric_v<A>&&::Processing::_is_numeric_v<B>&&::Processing::_is_numeric_v<C>&&::Processing::_is_numeric_v<D>>>
 inline void size(int w, int h){ _api::size(w,h); }
 inline void size(int w, int h, int mode){ _api::size(w,h,mode); }
 inline void fullScreen(){ _api::fullScreen(); }
 inline void fullScreen(int mode){ _api::fullScreen(mode); }
+inline void fullScreen(int mode, int display){ _api::fullScreen(mode, display); }
+inline void fullScreen(const char* r){ (void)r; _api::fullScreen(); }
+inline void fullScreen(const char* r, int display){ _api::fullScreen(r, display); }
 template<typename A,typename B,typename C,typename D,
     typename=::std::enable_if_t<::Processing::_is_numeric_v<A>&&::Processing::_is_numeric_v<B>&&::Processing::_is_numeric_v<C>&&::Processing::_is_numeric_v<D>>>
 inline void line(A x1,B y1,C x2,D y2){ _api::line((float)x1,(float)y1,(float)x2,(float)y2); }
@@ -4641,8 +4757,14 @@ struct PApplet {
     // ── Environment ─────────────────────────────────────────────────────────
     void size(int w, int h);
     void size(int w, int h, int renderer);
+    // cppmode-fsdisplay: fullScreen(P2D) / fullScreen(P3D) pick the renderer, any other number picks
+    // the display like Java (1 = first monitor, SPAN = stretch over all of them). fullScreen(2) is P2D
+    // here since renderers are ints, so use fullScreen(P2D, 2) for the second monitor.
     void fullScreen();
-    void fullScreen(int mode);
+    void fullScreen(int modeOrDisplay);
+    void fullScreen(int mode, int display);
+    void fullScreen(const char*)                 { fullScreen(); }
+    void fullScreen(const char*, int display);
     void  frameRate(int fps);
     float getFrameRate() const { return _targetFrameRate; } // convenience, not in Processing Java
     void noLoop();
@@ -5401,6 +5523,8 @@ namespace _api {
     inline void size(int w, int h, int m) { if(PApplet::g_papplet) PApplet::g_papplet->size(w,h,m); }
     inline void fullScreen()              { if(PApplet::g_papplet) PApplet::g_papplet->fullScreen(); }
     inline void fullScreen(int m)         { if(PApplet::g_papplet) PApplet::g_papplet->fullScreen(m); }
+    inline void fullScreen(int m, int d)  { if(PApplet::g_papplet) PApplet::g_papplet->fullScreen(m, d); }
+    inline void fullScreen(const char* r, int d) { if(PApplet::g_papplet) PApplet::g_papplet->fullScreen(r, d); }
 } // namespace _api
 
 

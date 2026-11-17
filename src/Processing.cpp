@@ -6672,8 +6672,8 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
             if (vbW > 1) scale(w / vbW, h / vbH);
             else if (s.width > 0 && s.height > 0) scale(w / s.width, h / s.height);  // cppmode-pshapesize
         }
-        if (s.hasMtx) _backend->apply_matrix(s.mtx);  // cppmode-pshapematrix
-        for (auto& c : s.children) drawPShape(c, 0, 0, -1, -1, se);
+        if (s.hasMtx && s.children.empty()) _backend->apply_matrix(s.mtx);  // cppmode-pshapematrix
+        for (size_t ci = 0; ci < s.children.size(); ci++) drawPShape(s.childAt(ci), 0, 0, -1, -1, se);  // cppmode-javashare
         int n = (int)s.verts.size();
         bool isMesh = (s.kind == TRIANGLES);
         if (n >= (isMesh ? 3 : 2)) {
@@ -6754,8 +6754,8 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
         // cppmode-pshapesize: like Java, the shape ends up w x h, so scale by w / width
         else if(s.width>0&&s.height>0) glScalef(w/s.width,h/s.height,1);
     }
-    if(s.hasMtx) glMultMatrixf(s.mtx);  // cppmode-pshapematrix
-    for(auto& c:s.children) drawPShape(c,0,0,-1,-1,se);
+    if(s.hasMtx && s.children.empty()) glMultMatrixf(s.mtx);  // cppmode-pshapematrix (a group's is in its children)
+    for(size_t ci=0;ci<s.children.size();ci++) drawPShape(s.childAt(ci),0,0,-1,-1,se);  // cppmode-javashare
     if(!s.verts.empty()){
         bool useFill   = se ? s.hasFill  : doFill;
         bool useStroke = se ? s.hasStroke : doStroke;
