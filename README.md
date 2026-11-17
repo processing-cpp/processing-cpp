@@ -72,7 +72,7 @@ target_link_libraries(your_target PRIVATE processing_cpp)
 
 ## Downloads
 
-Get the latest release from the [releases page](https://github.com/processing-cpp/processing.cpp/releases/latest):
+Get the latest release from the [releases page](https://github.com/processing-cpp/processing-cpp/releases/latest):
 
 - `processing-cpp-dragdrop.zip` — drag-and-drop version
 - `processing-cpp-cmake.zip` — CMake version
@@ -126,7 +126,7 @@ Full reference and tutorials at [processing-cpp.github.io](https://processing-cp
 
 ## Contributing
 
-Contributions are welcome. Open an issue or pull request on [GitHub](https://github.com/processing-cpp/processing.cpp).
+Contributions are welcome. Open an issue or pull request on [GitHub](https://github.com/processing-cpp/processing-cpp).
 
 ---
 

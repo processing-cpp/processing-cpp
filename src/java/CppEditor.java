@@ -105,7 +105,7 @@ public class CppEditor extends Editor {
   // ── Bug report link (placed in the footer's tab bar, just left of the
   //    version number / "Updates" indicator) ──────────────────────────────
   private static final String BUG_REPORT_URL =
-    "https://github.com/processing-cpp/processing.cpp/issues";
+    "https://github.com/processing-cpp/processing-cpp/issues";
 
   private static final String[] CPP_STDS = {"c++14", "c++17", "c++20", "c++23", "c++2c"};
   private static final String PREF_KEY = "cppmode.std";
