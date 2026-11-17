@@ -504,6 +504,12 @@ public class CppExport {
                             File outBase, String modeSrc, String skName,
                             java.util.List<File> sources,
                             RunnerListener listener, String iconPath) throws Exception {
+    // cppmode-lpexport: libprocessing only where its library exists for the target (Linux x64 for now)
+    File lpLibDir = CppBuild.libProcessingLibDir();
+    boolean lpExport = build.useLibProcessing() && t.name().equals("LINUX_X64")
+        && CppBuild.lpPlatform().equals("linux-x64") && lpLibDir != null;
+    if (build.useLibProcessing() && !lpExport)
+      System.err.println("[export] " + t.name() + ": no libprocessing library for this target, exporting it with OpenGL");
     File dir = new File(outBase, t.dirName); dir.mkdirs();
     String binName = skName + (t.isWindows ? ".exe" : "");
     File binOut = new File(dir, binName);
@@ -525,7 +531,7 @@ public class CppExport {
     } else if (!t.isWindows && t != ExportTarget.MACOS_X64
                && t != ExportTarget.MACOS_ARM64) {
       // Linux targets: use bundled musl toolchain if available
-      File muslComp = getMuslCompiler(t);
+      File muslComp = lpExport ? null : getMuslCompiler(t);  // libprocessing needs glibc + dynamic linking
       if (muslComp != null) {
         cmd.add(muslComp.getAbsolutePath());
       } else {
@@ -535,12 +541,23 @@ public class CppExport {
       cmd.add(t.compiler);
     }
     cmd.add("-std=" + CppBuild.bestCppStd(t.compiler)); cmd.add("-O2");
+    if (lpExport) {
+      cmd.add("-DCPPMODE_BACKEND_LIBPROCESSING");
+      for (File inc : CppBuild.libProcessingIncludes()) cmd.add("-I" + inc.getAbsolutePath());
+    }
     for (File s : sources) cmd.add(s.getAbsolutePath());
     // Use pre-built cached .o if available for this target
     String exportCacheDir = t.isWindows ? "cache/windows-x64"
       : (t == ExportTarget.LINUX_ARM64 ? "cache/linux-arm64"
       : (t == ExportTarget.LINUX_ARM32 ? "cache/linux-arm32"
       : "cache/linux-x64"));
+    if (lpExport) {
+      exportCacheDir += "-libprocessing";
+      if (!new File(runtimeDir.getParentFile(), exportCacheDir + "/Processing.o").exists()) {
+        listener.statusError("Run the sketch once with the libprocessing renderer before exporting it, so its build cache exists.");
+        return;
+      }
+    }
     File exportCache = new File(runtimeDir.getParentFile(), exportCacheDir);
     File cachedProcessingO = new File(exportCache, "Processing.o");
     File cachedDefaultsO   = new File(exportCache, "Processing_defaults.o");
@@ -605,6 +622,13 @@ public class CppExport {
     cmd.add("-o"); cmd.add(binOut.getAbsolutePath());
 
     System.out.println("$ " + String.join(" ", cmd));
+    if (lpExport) {
+      cmd.add("-L" + lpLibDir.getAbsolutePath());
+      cmd.add("-Wl,-rpath,$ORIGIN");
+      cmd.add("-lprocessing");
+      dir.mkdirs();
+      copyFile(new File(lpLibDir, CppBuild.lpLibName()), new File(dir, CppBuild.lpLibName()));
+    }
     ProcessBuilder pb = new ProcessBuilder(cmd);
     pb.redirectErrorStream(true);
     pb.directory(sketch.getFolder());

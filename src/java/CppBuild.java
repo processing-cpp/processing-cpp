@@ -336,7 +336,7 @@ public class CppBuild {
   // ── libprocessing backend ────────────────────────────────────────────────
 
   /** On when CPPMODE_RENDERER=libprocessing, the editor dropdown says so, or the sketch has a LIBPROCESSING file. */
-  private boolean useLibProcessing() {
+  boolean useLibProcessing() {
     boolean want;
     if ("libprocessing".equalsIgnoreCase(System.getenv("CPPMODE_RENDERER"))) want = true;
     else if (selectedRenderer != null) want = "libprocessing".equalsIgnoreCase(selectedRenderer);
@@ -409,7 +409,7 @@ public class CppBuild {
 
   private static volatile boolean lpMissingReported = false;
 
-  private static List<File> libProcessingIncludes() {
+  static List<File> libProcessingIncludes() {
     File h = libProcessingHome();
     List<File> out = new ArrayList<>();
     for (String sub : new String[]{"crates/processing_ffi/include", "crates/processing_ffi",
