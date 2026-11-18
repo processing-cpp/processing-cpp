@@ -105,11 +105,13 @@ template<class... A> inline uint64_t processing_vertex(A&&...) { return 0; }
 #include <array>
 // defined with the light helpers inside namespace Processing
 namespace Processing { static uint64_t lpLitTexMatFor(uint64_t, float, float, float, float); static bool lpLitOn();
+                       static void lpLitForgetSent();
                        static void lpLitFillChanged(float, float, float, float);
                        static void lpSetEye(float, float, float); }
 using Processing::lpLitFillChanged;
 using Processing::lpLitTexMatFor;
 using Processing::lpLitOn;
+using Processing::lpLitForgetSent;
 using Processing::lpSetEye;
 // cppmode-texsmooth: smooth()/noSmooth() under libprocessing, applied once the backend exists
 static int g_lpMsaaWanted = -1;
@@ -1080,14 +1082,14 @@ void PApplet::restoreStyle(const Style& s) {
     colorModeVal = s.colorMode;
     colorMaxH = s.cmH; colorMaxS = s.cmS; colorMaxB = s.cmB; colorMaxA = s.cmA;
 }
-void PApplet::pushStyle() {
+void PApplet::pushStyle() { lpLitForgetSent();  /* cppmode-sentmat */
     if(_backend) processing_push_style(_backend->graphics_id());
     Style s;
     captureStyle(s);
     styleStack.push_back(s);
 }
 
-void PApplet::popStyle() {
+void PApplet::popStyle() { lpLitForgetSent();  /* cppmode-sentmat */
     if(_backend) processing_pop_style(_backend->graphics_id());
     if (!styleStack.empty()) {
         restoreStyle(styleStack.back());
@@ -3017,6 +3019,10 @@ static void lpAddLight(int kind, float r, float g, float b,
 }
 static bool g_lpLit = false;
 static bool lpLitOn() { return g_lpLit; }  // cppmode-littex
+// cppmode-sentmat: the material last sent to libprocessing. push/popStyle make libprocessing
+// restore its own previous material, so after them this is unknown and the next fill resends.
+static uint64_t g_lpSentMat = 0;
+static void lpLitForgetSent() { g_lpSentMat = 0; }
 static void lpEnsureLit(uint64_t gid) {
     if (g_lpLit) return;
     PApplet* pa = PApplet::g_papplet;
@@ -3030,7 +3036,8 @@ static void lpEnsureLit(uint64_t gid) {
 static void lpLitFillChanged(float r, float g, float b, float a) {
     if (!g_lpLit || !PApplet::g_papplet || !PApplet::g_papplet->_backend) return;
     uint64_t m = lpLitMatFor(r, g, b, a);
-    if (m && m != g_lpPbr) { g_lpPbr = m; processing_material(PApplet::g_papplet->_backend->graphics_id(), m); }  // cppmode-lightcache
+    if (m) g_lpPbr = m;
+    if (m && m != g_lpSentMat) { g_lpSentMat = m; processing_material(PApplet::g_papplet->_backend->graphics_id(), m); }  // cppmode-lightcache
 }
 // a material property changed: reselect the lit material for the current fill
 static void lpSetEye(float x, float y, float z) {
@@ -3060,6 +3067,7 @@ static void lpLightsReset(uint64_t gid) {
 static void lpLightsReset(uint64_t) {}
 static uint64_t lpLitTexMatFor(uint64_t, float, float, float, float) { return 0; }
 static bool lpLitOn() { return false; }
+static void lpLitForgetSent() {}
 static void lpSetEye(float, float, float) {}
 static void lpLitFillChanged(float, float, float, float) {}
 #endif
@@ -6702,6 +6710,15 @@ PShape* PApplet::loadShape(const ::std::string& path){
     return new PShape();
 }
 
+// cppmode-sentmat: a shape's current size includes what groups did to it (Java sizes from that)
+static void cppGeoScale(const PShape& s, float& sx, float& sy) {
+    sx = sy = 1;
+    if (!s.hasGeo) return;
+    sx = ::std::sqrt(s.geo[0] * s.geo[0] + s.geo[1] * s.geo[1] + s.geo[2] * s.geo[2]);
+    sy = ::std::sqrt(s.geo[4] * s.geo[4] + s.geo[5] * s.geo[5] + s.geo[6] * s.geo[6]);
+    if (sx <= 0) sx = 1;
+    if (sy <= 0) sy = 1;
+}
 void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool parentStyleEnabled){
     if(!s.visible)return;
     if (s.prim) {  // cppmode-pshapeprim
@@ -6746,7 +6763,7 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
             float vbW = 1, vbH = 1;
             if (!s.verts.empty() && !s.children.empty() && s.verts[0].z == 0) { vbW = s.verts[0].x; vbH = s.verts[0].y; }
             if (vbW > 1) scale(w / vbW, h / vbH);
-            else if (s.width > 0 && s.height > 0) scale(w / s.width, h / s.height);  // cppmode-pshapesize
+            else if (s.width > 0 && s.height > 0) { float gx, gy; cppGeoScale(s, gx, gy); scale(w / (s.width * gx), h / (s.height * gy)); }  // cppmode-pshapesize
         }
         if (s.hasGeo) _backend->apply_matrix(s.geo);
         if (s.hasMtx && s.children.empty()) _backend->apply_matrix(s.mtx);  // cppmode-pshapematrix
@@ -6829,7 +6846,7 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
         }
         if(vbW>1) glScalef(w/vbW,h/vbH,1);
         // cppmode-pshapesize: like Java, the shape ends up w x h, so scale by w / width
-        else if(s.width>0&&s.height>0) glScalef(w/s.width,h/s.height,1);
+        else if(s.width>0&&s.height>0){ float gx,gy; cppGeoScale(s,gx,gy); glScalef(w/(s.width*gx),h/(s.height*gy),1); }
     }
     if(s.hasGeo) glMultMatrixf(s.geo);
     if(s.hasMtx && s.children.empty()) glMultMatrixf(s.mtx);  // cppmode-pshapematrix (a group's is in its children)
