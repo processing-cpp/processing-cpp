@@ -117,8 +117,16 @@ using Processing::lpSetEye;
 static int g_lpMsaaWanted = -1;
 static int lpMsaaSamples(bool on, int level) { return (!on || level <= 1) ? 0 : 4; }  // 4x is the count every GPU supports
 #ifdef CPPMODE_BACKEND_LIBPROCESSING
-#  define GLFW_EXPOSE_NATIVE_X11
-#  define GLFW_EXPOSE_NATIVE_WAYLAND
+// the window handle libprocessing draws into: HWND on Windows, NSWindow on
+// macOS, X11 or Wayland on Linux
+#  if defined(_WIN32)
+#    define GLFW_EXPOSE_NATIVE_WIN32
+#  elif defined(__APPLE__)
+#    define GLFW_EXPOSE_NATIVE_COCOA
+#  else
+#    define GLFW_EXPOSE_NATIVE_X11
+#    define GLFW_EXPOSE_NATIVE_WAYLAND
+#  endif
 #  include <GLFW/glfw3native.h>
 #  include "LibProcessingBackend.h"
 #endif
@@ -5312,6 +5320,13 @@ void PApplet::run(){
 #ifdef CPPMODE_BACKEND_LIBPROCESSING
     {
         _backend = new LibProcessingBackend();
+#if defined(_WIN32)
+        _backend->init((uint64_t)(uintptr_t)glfwGetWin32Window(gWindow), 0,
+                       (uint32_t)winWidth,(uint32_t)winHeight,1.0f);
+#elif defined(__APPLE__)
+        _backend->init((uint64_t)(uintptr_t)glfwGetCocoaWindow(gWindow), 0,
+                       (uint32_t)winWidth,(uint32_t)winHeight,1.0f);
+#else
         const char* wl = getenv("WAYLAND_DISPLAY");
         if (wl && wl[0]) {
             _backend->init((uint64_t)glfwGetWaylandWindow(gWindow),
@@ -5322,6 +5337,7 @@ void PApplet::run(){
                            (uint64_t)(uintptr_t)glfwGetX11Display(),
                            (uint32_t)winWidth,(uint32_t)winHeight,1.0f);
         }
+#endif
         // size() ran before the backend existed; apply P3D's camera now,
         // before setup() so a camera() call there still wins
         if (defaultP3D) {
