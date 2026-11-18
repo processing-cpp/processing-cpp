@@ -39,18 +39,19 @@ Changes since 0.6.1. This release is about stability. Sketches written the Proce
 - The Java-syntax rewrites now go through a real tokenizer (`CppLexer`), so strings, comments and directives are never touched and line numbers in errors stay exact.
 - `scripts/test_all.py` runs four test suites in under a minute: translator rewrites, free functions, 39 API areas, and 87 runtime values checked against Java.
 
-## From 0.7.0
+## Windows and Linux
 
-<!-- Fill in from the 0.7.0 release: gh release view v0.7.0 -R processing-cpp/processing.cpp --json body -q .body
-     It had PRs #8, #12, #13 and #14 and the fixes for #6 and #7. Merge those items into the sections above,
-     then delete this section. -->
+- Windows: builds no longer fail silently when another MinGW (Chocolatey and similar) is on PATH. `g++` now runs with its own `bin` folder first. (#6)
+- Windows: the install wizard no longer wipes your user PATH when it adds MSYS2. (#7)
+- Linux: fixed GLEW failing to start on Wayland. (#9, #14)
+- Fixed link errors for the `image(PImage&, ...)` overloads that were declared but never implemented. (#13)
+- The mode shows its real version in the Contribution Manager. (#12)
+- `scripts/rebuild-jar.py` works on Windows. (#8)
 
 ## Web editor
 
-The web editor at processing-cpp.github.io/editor runs this release. Its compile server now updates itself from GitHub releases, tests every build before going live, and rolls back by itself if something breaks. Compile errors and runtime errors show in the error panel with a Copy button, and a sketch that fails to start no longer leaves the loading spinner up.
+The web editor at processing-cpp.github.io/editor runs this release. New sketches compile about twice as fast, and its compile server now updates itself from GitHub releases, tests every build before going live, and rolls back by itself if something breaks. Compile errors and runtime errors show in the error panel with a Copy button, and a sketch that fails to start no longer leaves the loading spinner up.
 
-## For whoever adds to these notes
+## Thanks
 
-Everything since 0.6.1: `git log --oneline v0.6.1..HEAD`. Add items under the section they belong to, keep the plain tone, no em dashes or emojis. Delete this section and the 0.7.0 one before publishing.
-
-Thanks to @bogado and @ffunatsu for their pull requests, to TomArrow for the detailed report in #15, and to everyone who reported bugs.
+Thanks to @bogado for tracking down the Wayland GLEW bug, the missing `image()` overloads and the broken version field, and for testing the Wayland fix. Thanks to @ffunatsu for Windows support in the jar build script, to TomArrow for the detailed report in #15, and to everyone who reported bugs.
