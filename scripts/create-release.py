@@ -183,15 +183,23 @@ def download_all_artifacts(run_ids):
 
 # ── Zip assembly ───────────────────────────────────────────────────────────────
 
+# local working files that never belong in a release
+LOCAL_ONLY_DIRS = {".bak", "__pycache__", "_linux_ts_staging"}
+
 def should_prune_dir(path):
     rel   = os.path.relpath(path, CPPMODE_DIR)
     parts = rel.split(os.sep)
-    return len(parts) >= 1 and parts[0] in (".git", ".github")
+    if len(parts) >= 1 and parts[0] in (".git", ".github"): return True
+    if parts[-1] in LOCAL_ONLY_DIRS: return True
+    # cache/<platform>-libprocessing: built on first run on the user's machine, not shipped
+    return len(parts) == 2 and parts[0] == "cache" and parts[1].endswith("-libprocessing")
 
 def should_skip_file(path):
     rel   = os.path.relpath(path, CPPMODE_DIR)
     parts = rel.split(os.sep)
-    return len(parts) >= 1 and parts[0] in (".git", ".github")
+    if len(parts) >= 1 and parts[0] in (".git", ".github"): return True
+    name = parts[-1]
+    return name.startswith("hs_err_pid") or name.endswith(".pyc") or name == ".DS_Store"
 
 def build_zip(version):
     zip_name = f"CppMode-{version}.zip" if version else "CppMode.zip"
