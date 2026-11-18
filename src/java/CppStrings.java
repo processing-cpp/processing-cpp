@@ -182,4 +182,6 @@ final class CppStrings {
   static String publicClasses(String src) {
     return src.replaceAll("(?m)^class(\\s+[A-Za-z_]\\w*\\s*(?:[:{;]|$))", "struct$1");
   }
+
+
 }
