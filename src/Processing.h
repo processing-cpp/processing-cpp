@@ -4023,6 +4023,15 @@ public:
 
     void setFill(float r,float g,float b,float a=1)   { fillR=r;fillG=g;fillB=b;fillA=a;hasFill=true; }
     void setStroke(float r,float g,float b,float a=1) { strokeR=r;strokeG=g;strokeB=b;strokeA=a;hasStroke=true; }
+    // Java's setFill(color), setFill(#FF8800), setFill(false), and the same for stroke (cppmode-coloralpha)
+    void setFill(color c)   { unsigned v = c.value; setFill((v>>16&255)/255.f, (v>>8&255)/255.f, (v&255)/255.f, (v>>24&255)/255.f); }
+    void setStroke(color c) { unsigned v = c.value; setStroke((v>>16&255)/255.f, (v>>8&255)/255.f, (v&255)/255.f, (v>>24&255)/255.f); }
+    void setFill(unsigned int argb)   { setFill(color(argb)); }
+    void setStroke(unsigned int argb) { setStroke(color(argb)); }
+    void setFill(int argb)            { setFill((unsigned int)argb); }
+    void setStroke(int argb)          { setStroke((unsigned int)argb); }
+    template<class B, ::std::enable_if_t<::std::is_same_v<B, bool>, int> = 0> void setFill(B on)   { hasFill = on; }
+    template<class B, ::std::enable_if_t<::std::is_same_v<B, bool>, int> = 0> void setStroke(B on) { hasStroke = on; }
     void setStrokeWeight(float w) { strokeW=w; }
     void setVisible(bool v)       { visible=v; }
 
@@ -5062,6 +5071,8 @@ struct PApplet {
     void stroke(float r, float g, float b, float a);
     void stroke(float r, float g, float b);
     void stroke(color c);
+    void stroke(color c, float a);
+    void stroke(color c, int a) { stroke(c, (float)a); }
     void stroke(const PColor& c);
     void noStroke();
     void strokeWeight(float w);

@@ -79,6 +79,8 @@ CASES = {
         'selectInput("Pick", "fileSelected"); selectFolder("Dir", "folderSelected"); selectOutput("Save", "fileSelected"); String p = selectInput("Pick"); File f("x"); println(f.getName(), f.exists());',
     'exit/launch/link':
         'link("https://processing.org"); launch("a.txt"); String sp = sketchPath("x"); String dp = dataPath("y"); String sv = savePath("z/w.txt");',
+    'color alpha':
+        'stroke(color(255, 0, 0), 100); fill(color(0, 0, 255), 50); PShape r = createShape(RECT, 0, 0, 10, 10); r.setFill(color(255, 0, 0)); r.setStroke(false); r.setFill(0xFFFF8800u); shape(r, 5, 5);',
     'Thread':
         'thread([&]{ println("bg"); });',
 }

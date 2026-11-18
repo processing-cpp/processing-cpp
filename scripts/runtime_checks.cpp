@@ -87,6 +87,15 @@ struct Checks : public PApplet {
         c->resize(4, 0); CHECK(c->height, 4);
     }
 
+    // fill/stroke(color, alpha) and PShape color setters like Java (cppmode-coloralpha)
+    {
+        color red = color(255, 0, 0);
+        stroke(red, 100); CHECK(strokeR, 1.0f); CHECK(strokeG, 0.0f); CHECK((int)(strokeA * 255 + 0.5f), 100);
+        colorMode(RGB, 1.0f); fill(red, 0.5f); CHECK((int)(fillA * 255 + 0.5f), 128); colorMode(RGB, 255);
+        PShape ps;
+        ps.setFill(color(0, 255, 0)); CHECK(ps.fillG, 1.0f); ps.setFill(false); CHECK(ps.hasFill, false);
+        ps.setStroke(0xFF0000FFu); CHECK(ps.strokeB, 1.0f); CHECK(ps.hasStroke, true);
+    }
     std::printf("%d/%d runtime checks pass\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;
   }

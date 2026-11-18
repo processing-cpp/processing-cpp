@@ -1161,14 +1161,16 @@ void PApplet::fill(float gray)                      {setFillFromColor(makeColor(
 void PApplet::fill(float r,float g,float b,float a) {setFillFromColor(makeColor(r,g,b,a));}
 void PApplet::fill(float r,float g,float b)           {setFillFromColor(makeColor(r,g,b,colorMaxA));}
 void PApplet::fill(color c)                         {setFillFromColor(c);}
-void PApplet::fill(color c, float a) {
-    unsigned int v = c.value;
-    fillR = (v>>16&0xFF)/255.f;
-    fillG = (v>>8 &0xFF)/255.f;
-    fillB = (v    &0xFF)/255.f;
-    fillA = ::std::min(255.f, ::std::max(0.f, a)) / 255.f;
-    doFill = true;
+// cppmode-coloralpha: fill(rgb, alpha) / stroke(rgb, alpha) like Java: alpha is in colorMode's alpha
+// range, and the color goes through setFillFromColor so libprocessing gets it too. stroke(rgb,
+// alpha) used to fall through to stroke(gray, alpha), so a red stroke came out black.
+static color cppmodeWithAlpha(color c, float a, float maxA) {
+    float t = maxA > 0 ? a / maxA : 1.f;
+    int ai = (int)(::std::min(1.f, ::std::max(0.f, t)) * 255.f + 0.5f);
+    return colorVal((int)(c.value >> 16 & 0xFF), (int)(c.value >> 8 & 0xFF), (int)(c.value & 0xFF), ai);
 }
+void PApplet::fill(color c, float a)   { setFillFromColor(cppmodeWithAlpha(c, a, colorMaxA)); }
+void PApplet::stroke(color c, float a) { setStrokeFromColor(cppmodeWithAlpha(c, a, colorMaxA)); }
 void PApplet::noFill()                              {doFill=false; if(_backend) _backend->no_fill();}
 void PApplet::stroke(float gray,float a)            {setStrokeFromColor(makeColor(gray,a));}
 void PApplet::stroke(float gray)                    {setStrokeFromColor(makeColor(gray,colorMaxA));}
