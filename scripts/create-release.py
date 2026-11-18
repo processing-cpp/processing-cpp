@@ -236,6 +236,24 @@ def build_zip(version):
     log(f"\nCreated {zip_path} ({size_mb:.2f} MB)")
     log(f"  {included} files included, {skipped} skipped")
 
+# ── Publish ────────────────────────────────────────────────────────────────────
+
+def publish(version):
+    """Puts CppMode.zip and CppMode.txt on the v<version> release. The
+    Contribution Manager reads releases/latest/download/CppMode.txt and
+    installs the CppMode.zip next to it."""
+    tag = version if version.startswith("v") else f"v{version}"
+    files = [os.path.join(OUTPUT_DIR, "CppMode.zip"), os.path.join(CPPMODE_DIR, "CppMode.txt")]
+    if gh("release", "view", tag, "--repo", REPO).returncode == 0:
+        r = gh("release", "upload", tag, *files, "--repo", REPO, "--clobber")
+    else:
+        r = gh("release", "create", tag, *files, "--repo", REPO,
+               "--title", f"C++ Mode {tag.lstrip('v')}", "--generate-notes")
+    if r.returncode != 0:
+        log(f"\nCouldn't publish {tag}: {r.stderr.strip()}")
+        sys.exit(1)
+    log(f"\nPublished {tag}: CppMode.zip, CppMode.txt")
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 # The libprocessing renderer's C library comes from this release of the fork
@@ -272,6 +290,8 @@ def main():
         log("  ERROR: couldn't fetch libprocessing; not building the release zips"); sys.exit(1)
 
     build_zip(version)  # CppMode.zip: everything, including the libprocessing renderer
+    if version and "--publish" in sys.argv:
+        publish(version)
 
 if __name__ == "__main__":
     main()

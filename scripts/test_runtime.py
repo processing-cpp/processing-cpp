@@ -8,8 +8,10 @@ import subprocess, sys, pathlib, tempfile, os
 src = pathlib.Path("src")
 if not (src / "Processing.h").exists(): sys.exit("run from the CppMode folder")
 cached = pathlib.Path("cache/linux-x64/Processing.o")
-runtime = [str(cached)] if cached.exists() else [str(src / "Processing.cpp")]
-std = "-std=c++2c" if cached.exists() else "-std=c++20"
+# the cached object only counts if it was built after the last change to the runtime sources
+fresh = cached.exists() and cached.stat().st_mtime >= max((src / "Processing.cpp").stat().st_mtime, (src / "Processing.h").stat().st_mtime)
+runtime = [str(cached)] if fresh else [str(src / "Processing.cpp")]
+std = "-std=c++2c" if fresh else "-std=c++20"
 with tempfile.TemporaryDirectory() as d:
     exe = os.path.join(d, "runtime_checks")
     cmd = ["g++", std, "-O0", "-w", "-I", str(src), "-I/usr/include/freetype2", "scripts/runtime_checks.cpp", *runtime,
