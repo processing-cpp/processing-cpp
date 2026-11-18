@@ -7,6 +7,8 @@ on:
       - 'src/Processing.cpp'
       - 'src/Processing.h'
       - 'src/Processing_defaults.cpp'
+      - 'src/LibProcessingBackend.h'
+      - 'libs/*/libprocessing/include/processing.h'
 
 permissions:
   contents: write
@@ -51,6 +53,26 @@ jobs:
         with:
           name: cache-linux-x64
           path: cache/linux-x64/
+
+      # The same two objects built for the libprocessing renderer, so picking it
+      # in the toolbar doesn't compile Processing.cpp on the user's computer first.
+      # The header is the same on every platform; the committed Linux copy is the fallback.
+      - name: Build libprocessing cache
+        continue-on-error: true
+        run: |
+          D=cache/linux-x64-libprocessing; mkdir -p "$D"
+          H=libs/linux-x64/libprocessing/include
+          [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
+          FLAGS="-std=c++2c -O2 -march=x86-64 -static-libgcc -static-libstdc++ -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I glew-2.3.1/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
+          g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
+          ls -lh "$D"
+
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('cache/linux-x64-libprocessing/Processing.o') != ''
+        with:
+          name: cache-linux-x64-libprocessing
+          path: cache/linux-x64-libprocessing/
 
   windows:
     runs-on: windows-latest
@@ -105,6 +127,27 @@ jobs:
           name: cache-windows-x64
           path: cache/windows-x64/
 
+      # The same two objects built for the libprocessing renderer, so picking it
+      # in the toolbar doesn't compile Processing.cpp on the user's computer first.
+      # The header is the same on every platform; the committed Linux copy is the fallback.
+      - name: Build libprocessing cache
+        continue-on-error: true
+        shell: msys2 {0}
+        run: |
+          D=cache/windows-x64-libprocessing; mkdir -p "$D"
+          H=libs/windows-x64/libprocessing/include
+          [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
+          FLAGS="-std=c++2c -O2 -march=x86-64 -static-libgcc -static-libstdc++ -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I glew-2.3.1/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
+          g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
+          ls -lh "$D"
+
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('cache/windows-x64-libprocessing/Processing.o') != ''
+        with:
+          name: cache-windows-x64-libprocessing
+          path: cache/windows-x64-libprocessing/
+
   macos-arm64:
     runs-on: macos-latest
     steps:
@@ -136,6 +179,26 @@ jobs:
           name: cache-macos-arm64
           path: cache/macos-arm64/
 
+      # The same two objects built for the libprocessing renderer, so picking it
+      # in the toolbar doesn't compile Processing.cpp on the user's computer first.
+      # The header is the same on every platform; the committed Linux copy is the fallback.
+      - name: Build libprocessing cache
+        continue-on-error: true
+        run: |
+          D=cache/macos-arm64-libprocessing; mkdir -p "$D"
+          H=libs/macos-arm64/libprocessing/include
+          [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
+          FLAGS="-std=c++2c -O2 -w -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
+          g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
+          ls -lh "$D"
+
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('cache/macos-arm64-libprocessing/Processing.o') != ''
+        with:
+          name: cache-macos-arm64-libprocessing
+          path: cache/macos-arm64-libprocessing/
+
   macos-x64:
     runs-on: macos-latest
     steps:
@@ -166,5 +229,25 @@ jobs:
         with:
           name: cache-macos-x64
           path: cache/macos-x64/
+
+      # The same two objects built for the libprocessing renderer, so picking it
+      # in the toolbar doesn't compile Processing.cpp on the user's computer first.
+      # The header is the same on every platform; the committed Linux copy is the fallback.
+      - name: Build libprocessing cache
+        continue-on-error: true
+        run: |
+          D=cache/macos-x64-libprocessing; mkdir -p "$D"
+          H=libs/macos-x64/libprocessing/include
+          [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
+          FLAGS="-std=c++2c -O2 -w -target x86_64-apple-macos10.13 -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
+          g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
+          ls -lh "$D"
+
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('cache/macos-x64-libprocessing/Processing.o') != ''
+        with:
+          name: cache-macos-x64-libprocessing
+          path: cache/macos-x64-libprocessing/
 
 

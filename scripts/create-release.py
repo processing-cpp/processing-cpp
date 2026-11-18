@@ -150,6 +150,11 @@ def download_all_artifacts(run_ids):
             if dest.exists():
                 shutil.rmtree(dest)
             tasks.append((cache_run, f"cache-{platform}", dest, False))
+            # the same for the libprocessing renderer (cache/<platform>-libprocessing)
+            lp_dest = root / "cache" / f"{platform}-libprocessing"
+            if lp_dest.exists():
+                shutil.rmtree(lp_dest)
+            tasks.append((cache_run, f"cache-{platform}-libprocessing", lp_dest, False))
         # Windows runtime DLLs also live in build-cache artifacts
         tasks.append((cache_run, "windows-runtime-dlls",
                       root / "libs" / "windows-x64", False))
