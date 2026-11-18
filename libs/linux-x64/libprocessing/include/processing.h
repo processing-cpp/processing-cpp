@@ -1427,6 +1427,11 @@ void processing_material_set_custom_blend_mode(uint64_t mat_id,
 
 void processing_graphics_apply_filter(uint64_t graphics_id, uint64_t filter_id);
 
+// Apply a filter to what the graphics holds after the last update, without
+// an engine update first. For showing a finished frame (the filter's shader
+// must have run once, through `processing_graphics_apply_filter`).
+void processing_graphics_apply_filter_now(uint64_t graphics_id, uint64_t filter_id);
+
 uint64_t processing_filter_create(uint64_t shader_id);
 
 void processing_filter_destroy(uint64_t filter_id);
