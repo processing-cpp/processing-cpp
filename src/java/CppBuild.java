@@ -264,7 +264,11 @@ public class CppBuild {
     cmd.add("-std=" + std);
     cmd.add("-O2");
 
-    // Include paths
+    // Include paths. libprocessing's header folder goes first: macOS and
+    // Windows filesystems don't tell processing.h from Processing.h, so with
+    // the runtime folder first <processing.h> would find Processing.h.
+    if (useLibProcessing())
+      for (File inc : libProcessingIncludes()) { cmd.add("-I"); cmd.add(inc.getAbsolutePath()); }
     cmd.add("-I"); cmd.add(runtimeDir.getAbsolutePath());
     File bundledInc = new File(runtimeDir.getParentFile(), "libs/include");
     if (bundledInc.exists()) { cmd.add("-I"); cmd.add(bundledInc.getAbsolutePath()); }
@@ -273,7 +277,6 @@ public class CppBuild {
     boolean lp = useLibProcessing();
     if (lp) {
       cmd.add("-DCPPMODE_BACKEND_LIBPROCESSING"); cmd.add("-DPROCESSING_HAS_STB_IMAGE"); cmd.add("-DPROCESSING_HAS_STB_TRUETYPE");
-      for (File inc : libProcessingIncludes()) { cmd.add("-I"); cmd.add(inc.getAbsolutePath()); }
     }
 
     // Platform link flags
@@ -430,7 +433,10 @@ public class CppBuild {
       File src = new File(runtimeDir, name + ".cpp");
       if (!src.exists()) continue;
       List<String> c = new ArrayList<>(List.of(gpp, "-std=" + std, "-O2", "-c",
-          "-DCPPMODE_BACKEND_LIBPROCESSING", "-DPROCESSING_HAS_STB_IMAGE", "-DPROCESSING_HAS_STB_TRUETYPE", "-I", runtimeDir.getAbsolutePath()));
+          "-DCPPMODE_BACKEND_LIBPROCESSING", "-DPROCESSING_HAS_STB_IMAGE", "-DPROCESSING_HAS_STB_TRUETYPE"));
+      // header folder before the runtime folder (see buildCommand)
+      for (File inc : libProcessingIncludes()) { c.add("-I"); c.add(inc.getAbsolutePath()); }
+      c.add("-I"); c.add(runtimeDir.getAbsolutePath());
       // FreeType letters, when build-cache.py found FreeType for the OpenGL cache
       File ftSrc = new File(runtimeDir.getParentFile(), "cache/linux-x64/freetype.flags");
       if (name.equals("Processing") && ftSrc.exists() && new File("/usr/include/freetype2").isDirectory()) {
@@ -440,7 +446,6 @@ public class CppBuild {
       }
       File bundledInc = new File(runtimeDir.getParentFile(), "libs/include");
       if (bundledInc.exists()) { c.add("-I"); c.add(bundledInc.getAbsolutePath()); }
-      for (File inc : libProcessingIncludes()) { c.add("-I"); c.add(inc.getAbsolutePath()); }
       c.add(src.getAbsolutePath());
       c.add("-o"); c.add(new File(cacheDir, name + ".o").getAbsolutePath());
       System.err.println("[CppMode] building libprocessing cache: " + name + ".o");

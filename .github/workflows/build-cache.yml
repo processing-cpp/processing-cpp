@@ -63,13 +63,15 @@ jobs:
       # The same two objects built for the libprocessing renderer, so picking it
       # in the toolbar doesn't compile Processing.cpp on the user's computer first.
       # The header is the same on every platform; the committed Linux copy is the fallback.
+      # Its folder goes first: macOS and Windows don't tell processing.h from
+      # src/Processing.h, so with src first <processing.h> finds the wrong file.
       - name: Build libprocessing cache
         continue-on-error: true
         run: |
           D=cache/linux-x64-libprocessing; mkdir -p "$D"
           H=libs/linux-x64/libprocessing/include
           [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
-          FLAGS="-std=c++2c -O2 -march=x86-64 -static-libgcc -static-libstdc++ -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I glew-2.3.1/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          FLAGS="-I $H -std=c++2c -O2 -march=x86-64 -static-libgcc -static-libstdc++ -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I glew-2.3.1/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include"
           g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
           g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
           ls -lh "$D"
@@ -136,6 +138,8 @@ jobs:
       # The same two objects built for the libprocessing renderer, so picking it
       # in the toolbar doesn't compile Processing.cpp on the user's computer first.
       # The header is the same on every platform; the committed Linux copy is the fallback.
+      # Its folder goes first: macOS and Windows don't tell processing.h from
+      # src/Processing.h, so with src first <processing.h> finds the wrong file.
       - name: Build libprocessing cache
         continue-on-error: true
         shell: msys2 {0}
@@ -143,7 +147,7 @@ jobs:
           D=cache/windows-x64-libprocessing; mkdir -p "$D"
           H=libs/windows-x64/libprocessing/include
           [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
-          FLAGS="-std=c++2c -O2 -march=x86-64 -static-libgcc -static-libstdc++ -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I glew-2.3.1/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          FLAGS="-I $H -std=c++2c -O2 -march=x86-64 -static-libgcc -static-libstdc++ -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I glew-2.3.1/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include"
           g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
           g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
           ls -lh "$D"
@@ -188,13 +192,15 @@ jobs:
       # The same two objects built for the libprocessing renderer, so picking it
       # in the toolbar doesn't compile Processing.cpp on the user's computer first.
       # The header is the same on every platform; the committed Linux copy is the fallback.
+      # Its folder goes first: macOS and Windows don't tell processing.h from
+      # src/Processing.h, so with src first <processing.h> finds the wrong file.
       - name: Build libprocessing cache
         continue-on-error: true
         run: |
           D=cache/macos-arm64-libprocessing; mkdir -p "$D"
           H=libs/macos-arm64/libprocessing/include
           [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
-          FLAGS="-std=c++2c -O2 -w -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          FLAGS="-I $H -std=c++2c -O2 -w -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include"
           g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
           g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
           ls -lh "$D"
@@ -239,13 +245,15 @@ jobs:
       # The same two objects built for the libprocessing renderer, so picking it
       # in the toolbar doesn't compile Processing.cpp on the user's computer first.
       # The header is the same on every platform; the committed Linux copy is the fallback.
+      # Its folder goes first: macOS and Windows don't tell processing.h from
+      # src/Processing.h, so with src first <processing.h> finds the wrong file.
       - name: Build libprocessing cache
         continue-on-error: true
         run: |
           D=cache/macos-x64-libprocessing; mkdir -p "$D"
           H=libs/macos-x64/libprocessing/include
           [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
-          FLAGS="-std=c++2c -O2 -w -target x86_64-apple-macos10.13 -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include -I $H"
+          FLAGS="-I $H -std=c++2c -O2 -w -target x86_64-apple-macos10.13 -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include"
           g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
           g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
           ls -lh "$D"
