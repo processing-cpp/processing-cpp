@@ -201,8 +201,14 @@ def should_skip_file(path):
     name = parts[-1]
     return name.startswith("hs_err_pid") or name.endswith(".pyc") or name == ".DS_Store"
 
-def build_zip(version):
-    zip_name = f"CppMode-{version}.zip" if version else "CppMode.zip"
+def is_libprocessing_dir(path):
+    parts = os.path.relpath(path, CPPMODE_DIR).split(os.sep)
+    return len(parts) == 3 and parts[0] == "libs" and parts[2] == "libprocessing"
+
+def build_zip(version, gl_only=False):
+    # CppMode.zip has everything; CppMode-lite.zip leaves out the libprocessing renderer
+    base = "CppMode-lite" if gl_only else "CppMode"
+    zip_name = f"{base}.zip"  # stable name; the version is in mode.properties and CppMode.txt
     zip_path = os.path.join(OUTPUT_DIR, zip_name)
     if os.path.exists(zip_path):
         os.remove(zip_path)
@@ -211,7 +217,8 @@ def build_zip(version):
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, dirs, files in os.walk(CPPMODE_DIR):
             dirs[:] = [d for d in dirs
-                       if not should_prune_dir(os.path.join(root, d))]
+                       if not should_prune_dir(os.path.join(root, d))
+                       and not (gl_only and is_libprocessing_dir(os.path.join(root, d)))]
             rel_dir = os.path.relpath(root, CPPMODE_DIR)
             kept_any = any(
                 not should_skip_file(os.path.join(root, f)) for f in files)
@@ -232,6 +239,10 @@ def build_zip(version):
     log(f"  {included} files included, {skipped} skipped")
 
 # ── Main ───────────────────────────────────────────────────────────────────────
+
+# The libprocessing renderer's C library comes from this release of the fork
+# (llamasjc/libprocessing). Bump it when you tag a new fork release.
+LIBPROCESSING_TAG = "v0.0.8-fork.2"
 
 WORKFLOWS = [
     "build-cache.yml",            # → cache/linux-x64, windows-x64, macos-*/
@@ -255,7 +266,15 @@ def main():
                 log(f"  WARNING: {wf} did not complete successfully — its artifacts will be skipped")
 
     download_all_artifacts(run_ids)
-    build_zip(version)
+
+    log(f"\nFetching the libprocessing renderer ({LIBPROCESSING_TAG})...")
+    fetch = subprocess.run([sys.executable, os.path.join(CPPMODE_DIR, "scripts", "fetch-libprocessing.py"),
+                            LIBPROCESSING_TAG])
+    if fetch.returncode != 0:
+        log("  ERROR: couldn't fetch libprocessing; not building the release zips"); sys.exit(1)
+
+    build_zip(version)                # CppMode.zip: everything
+    build_zip(version, gl_only=True)  # CppMode-lite.zip: without libprocessing
 
 if __name__ == "__main__":
     main()

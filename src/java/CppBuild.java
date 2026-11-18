@@ -230,6 +230,9 @@ public class CppBuild {
     // (tree-sitter-cpp supports them, but some g++ versions don't)
     src = src.replaceAll("(?<=[0-9a-fA-FxXbB])'(?=[0-9a-fA-F])", "");
 
+    // cppmode-hexcolor: #RRGGBB colors and thread("name"), before tree-sitter sees the code
+    src = CppJavaSyntax.rewrite(src);  // cppmode-lexer: #RRGGBB, Math.abs, thread("name") via CppLexer
+
     return src;
   }
 
@@ -346,7 +349,8 @@ public class CppBuild {
       if (!lpMissingReported) {
         lpMissingReported = true;
         System.err.println("[CppMode] The libprocessing renderer is selected, but its library (" + lpLibName()
-            + ") wasn't found in libs/" + lpPlatform() + "/libprocessing or ~/lp-fork. Using OpenGL.");
+            + ") wasn't found in libs/" + lpPlatform() + "/libprocessing or ~/lp-fork. Using OpenGL. "
+            + "The libprocessing renderer comes with CppMode.zip (the CppMode-lite download leaves it out).");
       }
       return false;
     }
