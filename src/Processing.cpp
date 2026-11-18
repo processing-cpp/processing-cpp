@@ -104,9 +104,12 @@ template<class... A> inline uint64_t processing_vertex(A&&...) { return 0; }
 #include <map>
 #include <array>
 // defined with the light helpers inside namespace Processing
-namespace Processing { static void lpLitFillChanged(float, float, float, float);
+namespace Processing { static uint64_t lpLitTexMatFor(uint64_t, float, float, float, float); static bool lpLitOn();
+                       static void lpLitFillChanged(float, float, float, float);
                        static void lpSetEye(float, float, float); }
 using Processing::lpLitFillChanged;
+using Processing::lpLitTexMatFor;
+using Processing::lpLitOn;
 using Processing::lpSetEye;
 // cppmode-texsmooth: smooth()/noSmooth() under libprocessing, applied once the backend exists
 static int g_lpMsaaWanted = -1;
@@ -1932,9 +1935,10 @@ static void lpShapeDrawTex(uint64_t gid, int kind, bool doTint, float tr, float 
     if (!doTint) { tr = tg = tb = ta = 1.0f; }
     static ::std::map<::std::tuple<uint64_t, float, float, float, float, bool>, uint64_t> mats;
     auto key = ::std::make_tuple(g_lpTexImg, tr, tg, tb, ta, g_lpTexAlpha);
-    uint64_t mat;
+    uint64_t mat = lpLitOn() ? lpLitTexMatFor(g_lpTexImg, tr, tg, tb, ta) : 0;  // cppmode-littex
     auto it = mats.find(key);
-    if (it != mats.end()) mat = it->second;
+    if (mat) {}
+    else if (it != mats.end()) mat = it->second;
     else {
         mat = processing_material_create_pbr();
         if (!mat) return;
@@ -2928,6 +2932,55 @@ static uint64_t lpLitMatFor(float r, float g, float b, float a) {
     g_lpLitMats[key] = m;
     return m;
 }
+// cppmode-littex: a textured shape under lights() uses the lighting shader with its texture
+// multiplied into the base color (in screen colors, like the rest of the shader), like Java.
+static uint64_t g_lpLitTexShader = 0;
+static ::std::map<::std::pair<uint64_t, ::std::array<float, 15>>, uint64_t> g_lpLitTexMats;
+static uint64_t lpLitTexMatFor(uint64_t img, float r, float g, float b, float a) {
+    if (!img || g_lpLitFailed) return 0;
+    ::std::array<float, 15> k{r, g, b, a,
+        g_lpMatSpec[0], g_lpMatSpec[1], g_lpMatSpec[2], g_lpMatShin,
+        g_lpMatEmis[0], g_lpMatEmis[1], g_lpMatEmis[2],
+        g_lpMatAmb[0], g_lpMatAmb[1], g_lpMatAmb[2], g_lpMatAmbSet ? 1.0f : 0.0f};
+    auto key = ::std::make_pair(img, k);
+    auto it = g_lpLitTexMats.find(key);
+    if (it != g_lpLitTexMats.end()) return it->second;
+    if (!g_lpLitTexShader) {
+        ::std::string src = LP_PLIGHTS_SHADER;
+        auto swap = [&](const char* a2, const char* b2) { auto at = src.find(a2); if (at != ::std::string::npos) src.replace(at, ::std::strlen(a2), b2); };
+        swap("@group(3) @binding(0) var<uniform> plights: PLights;\n",
+             "@group(3) @binding(0) var<uniform> plights: PLights;\n"
+             "@group(3) @binding(1) var tex: texture_2d<f32>;\n"
+             "@group(3) @binding(2) var tex_samp: sampler;\n");
+        swap("    let fill = plights.fill.rgb;\n",
+             "    let texel = textureSample(tex, tex_samp, mesh.uv);\n"
+             "    let fill = plights.fill.rgb * to_srgb(texel.rgb);\n");
+        swap("plights.fill.a);", "plights.fill.a * texel.a);");
+        g_lpLitTexShader = processing_shader_create(src.c_str());
+        if (!g_lpLitTexShader) { const char* e = processing_check_error();
+            fprintf(stderr, "[CppMode] lit textures: shader failed to compile: %s\n", e ? e : "(no message)");
+            g_lpLitFailed = true; return 0; }
+    }
+    uint64_t m = processing_material_create_custom(g_lpLitTexShader);
+    if (!m) return 0;
+    processing_material_set_double_sided(m, true);
+    processing_material_set_float4(m, "fill", r, g, b, a);
+    processing_material_set_float4(m, "eye", g_lpEye[0], g_lpEye[1], g_lpEye[2], 1);
+    processing_material_set_float4(m, "mat_spec", g_lpMatSpec[0], g_lpMatSpec[1], g_lpMatSpec[2], g_lpMatShin);
+    processing_material_set_float4(m, "mat_emissive", g_lpMatEmis[0], g_lpMatEmis[1], g_lpMatEmis[2], 0);
+    processing_material_set_float4(m, "mat_ambient", g_lpMatAmb[0], g_lpMatAmb[1], g_lpMatAmb[2], g_lpMatAmbSet ? 1.0f : 0.0f);
+    processing_material_set_texture(m, "tex", img);
+    processing_material_set_texture(m, "tex_samp", img);
+    for (int i = 0; i < g_lpLightCount; i++) lpUploadSlot(m, i);
+    lpUploadCount(m);
+    // also listed with the plain lit materials (under a key no fill can have), so every
+    // light, eye and count upload reaches it too
+    ::std::array<float, 15> listed{};
+    listed[0] = -1.0f - (float)g_lpLitTexMats.size();
+    g_lpLitMats[listed] = m;
+    g_lpLitTexMats[key] = m;
+    return m;
+}
 // kind: 0 ambient, 1 directional, 2 point, 3 spot. Positions and directions are
 // in sketch coordinates; with P3D's camera, world and sketch axes agree.
 static void lpAddLight(int kind, float r, float g, float b,
@@ -2953,6 +3006,7 @@ static void lpAddLight(int kind, float r, float g, float b,
     }
 }
 static bool g_lpLit = false;
+static bool lpLitOn() { return g_lpLit; }  // cppmode-littex
 static void lpEnsureLit(uint64_t gid) {
     if (g_lpLit) return;
     PApplet* pa = PApplet::g_papplet;
@@ -2994,6 +3048,8 @@ static void lpLightsReset(uint64_t gid) {
 }
 #else
 static void lpLightsReset(uint64_t) {}
+static uint64_t lpLitTexMatFor(uint64_t, float, float, float, float) { return 0; }
+static bool lpLitOn() { return false; }
 static void lpSetEye(float, float, float) {}
 static void lpLitFillChanged(float, float, float, float) {}
 #endif
