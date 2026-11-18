@@ -43,6 +43,7 @@
 #include <dirent.h>
 #endif
 #include <functional>
+#include <type_traits>
 // C++23/26 headers -- guarded by __has_include for maximum portability
 #if __has_include(<expected>)
 #  include <expected>
@@ -1166,7 +1167,8 @@ public:
 // Internal event function pointers (set by run() via the callbacks above).
 // Exposed here so IDE.cpp's wireCallbacks() can assign them.
 // ---------------------------------------------------------------------------
-#include <functional>
+// (<functional> is included at the top: a standard header included inside
+// namespace Processing makes a Processing::std with libc++, on macOS)
 
 // ---------------------------------------------------------------------------
 // Windows-only: raw POD function pointer set by IDE.cpp during static init.
@@ -4482,7 +4484,7 @@ inline PVector createVector(float x, float y, float z=0) { return PVector(x, y, 
 // Mixed-type templates for geometry and math functions.
 // Handles calls like rect(int,int,float,float), line(float,int,float,int), etc.
 // ---------------------------------------------------------------------------
-#include <type_traits>
+// (<type_traits> is included at the top, outside namespace Processing)
 
 inline void size(int w, int h){ _api::size(w,h); }
 inline void size(int w, int h, int mode){ _api::size(w,h,mode); }
