@@ -1723,8 +1723,49 @@ inline float randomGaussian() {
     spare = v*mul; hasSpare = true;
     return u*mul;
 }
-inline int   parseInt(const ::std::string& s)   { try { return ::std::stoi(s); } catch(...) { return 0; } }
-inline float parseFloat(const ::std::string& s) { try { return ::std::stof(s); } catch(...) { return 0.f; } }
+// cppmode-parity3: parseInt/parseFloat behave like Processing's, not like stoi/stof.
+// parseInt: optional sign and digits, anything after a '.' is dropped ("3.7" -> 3),
+// anything else invalid ("12abc", " 5", "") gives the fallback (0 by default).
+inline int parseInt(const ::std::string& s, int otherwise) {
+    ::std::string t = s.substr(0, s.find('.'));
+    size_t i = 0;
+    bool neg = false;
+    if (i < t.size() && (t[i] == '+' || t[i] == '-')) { neg = t[i] == '-'; i++; }
+    if (i == t.size()) return otherwise;
+    long long v = 0;
+    for (; i < t.size(); i++) {
+        if (t[i] < '0' || t[i] > '9') return otherwise;
+        v = v * 10 + (t[i] - '0');
+        if (v > 2147483648LL) return otherwise;
+    }
+    if (neg) v = -v;
+    if (v > 2147483647LL || v < -2147483648LL) return otherwise;
+    return (int)v;
+}
+inline int parseInt(const ::std::string& s) { return parseInt(s, 0); }
+inline int parseInt(float v) { return (int)v; }
+inline int parseInt(char c) { return (int)c; }
+// parseFloat: like Java's Float.parseFloat (surrounding whitespace is fine, an f/F/d/D
+// suffix is fine); anything invalid gives the fallback, NaN by default like Processing.
+inline float parseFloat(const ::std::string& s, float otherwise) {
+    size_t a = 0, b = s.size();
+    while (a < b && (unsigned char)s[a] <= ' ') a++;
+    while (b > a && (unsigned char)s[b - 1] <= ' ') b--;
+    if (a == b) return otherwise;
+    ::std::string t = s.substr(a, b - a);
+    char last = t.back();
+    if (t.size() > 1 && (last == 'f' || last == 'F' || last == 'd' || last == 'D') && t.find('x') == ::std::string::npos && t.find('X') == ::std::string::npos) t.pop_back();
+    if (t == "NaN") return __builtin_nanf("");
+    if (t == "Infinity" || t == "+Infinity") return __builtin_huge_valf();
+    if (t == "-Infinity") return -__builtin_huge_valf();
+    for (char ch : t) if (ch == 'n' || ch == 'N' || ch == 'i' || ch == 'I') return otherwise;  // no "nan"/"inf" spellings
+    const char* begin = t.c_str(); char* end = nullptr;
+    float v = ::std::strtof(begin, &end);
+    if (end == begin || *end != '\0') return otherwise;
+    return v;
+}
+inline float parseFloat(const ::std::string& s) { return parseFloat(s, __builtin_nanf("")); }
+inline float parseFloat(int v) { return (float)v; }
 // Java: only "true" (any case) is true, everything else (including "1") is false.
 inline bool  parseBoolean(const ::std::string& s){ ::std::string t; for (char c : s) t += (char)::std::tolower((unsigned char)c); return t == "true"; }
 inline bool  parseBoolean(int v) { return v != 0; }
@@ -2238,7 +2279,13 @@ PImage     getRegion(int x, int y, int w, int h);
 // SAVE / THREADING
 // =============================================================================
 
-inline void thread(::std::function<void()> fn) { ::std::thread(fn).detach(); }
+inline void thread(::std::function<void()> fn) {
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+    fn();  // cppmode-webthread: the web build has no threads, so the work runs right here
+#else
+    ::std::thread(fn).detach();
+#endif
+}
 inline void delay(int ms) { ::std::this_thread::sleep_for(::std::chrono::milliseconds(ms)); }
 
 // =============================================================================
@@ -2542,6 +2589,10 @@ public:
 // =============================================================================
 class String : public ::std::string {
 public:
+    // int(s) / float(s) on a String variable, like Processing's int(String) (cppmode-parity3)
+    explicit operator int() const    { return parseInt(*this); }
+    explicit operator float() const  { return parseFloat(*this); }
+    explicit operator double() const { return (double)parseFloat(*this); }
     // Java's String.hashCode(): s[0]*31^(n-1) + ... + s[n-1], wrapping like an int
     int hashCode() const { unsigned int x = 0; for (unsigned char ch : *this) x = 31u * x + ch; return (int)x; }
     String() : ::std::string() {}
@@ -4938,7 +4989,13 @@ struct PApplet {
     static int  month()  { return processingLocalTime(::std::time(nullptr)).tm_mon+1;    }
     static int  year()   { return processingLocalTime(::std::time(nullptr)).tm_year+1900;}
     static void delay(int ms) { ::std::this_thread::sleep_for(::std::chrono::milliseconds(ms)); }
-    void thread(::std::function<void()> fn) { ::std::thread(fn).detach(); }
+    void thread(::std::function<void()> fn) {
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+        fn();  // cppmode-webthread: the web build has no threads, so the work runs right here
+#else
+        ::std::thread(fn).detach();
+#endif
+    }
 
     // ── Style stack ──────────────────────────────────────────────────────────
     void push();

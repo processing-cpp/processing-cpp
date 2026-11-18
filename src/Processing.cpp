@@ -7192,6 +7192,10 @@ struct CppmodeSelection { bool folder; ::std::string path; };
 static ::std::mutex g_selMutex;
 static ::std::vector<CppmodeSelection> g_selDone;
 static void cppmodeSelectAsync(int kind, const ::std::string& prompt) {
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+    // cppmode-webselect: no file dialogs or threads in the browser; report a cancel right away
+    { ::std::lock_guard<::std::mutex> l(g_selMutex); g_selDone.push_back({kind == 2, ::std::string()}); (void)prompt; return; }
+#endif
     ::std::thread([kind, prompt] {
         ::std::string p; if (!cppmodeChoose(kind, prompt, p)) p.clear();
         ::std::lock_guard<::std::mutex> l(g_selMutex); g_selDone.push_back({kind == 2, p});

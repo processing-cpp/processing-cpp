@@ -381,6 +381,7 @@ INVERT	LITERAL2
 THRESHOLD	LITERAL2
 POSTERIZE	LITERAL2
 nullptr	LITERAL2
+null	LITERAL2
 NULL	LITERAL2
 
 # ── KEYWORD5: numeric types  (orange) ─────────────────────────────────────────
