@@ -201,10 +201,6 @@ def should_skip_file(path):
     name = parts[-1]
     return name.startswith("hs_err_pid") or name.endswith(".pyc") or name == ".DS_Store"
 
-def is_libprocessing_dir(path):
-    parts = os.path.relpath(path, CPPMODE_DIR).split(os.sep)
-    return len(parts) == 3 and parts[0] == "libs" and parts[2] == "libprocessing"
-
 def build_zip(version):
     base = "CppMode"
     zip_name = f"{base}.zip"  # stable name; the version is in mode.properties and CppMode.txt
