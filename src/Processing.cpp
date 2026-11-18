@@ -773,6 +773,11 @@ void PApplet::setStrokeFromColor(color c) {
 // ENVIRONMENT
 // =============================================================================
 
+// cppmode-java2dfill: per-vertex fill() blends only in P2D and P3D, like Java. The default
+// renderer (JAVA2D) fills a polygon with the last fill, and each triangle or quad of the
+// explicit kinds with the fill at its last vertex.
+static int g_cppRendererKind = 0;
+static bool cppBlendsVertexColors() { return g_cppRendererKind == P2D || g_cppRendererKind == P3D; }
 void PApplet::size(int w,int h){
     winWidth=w;winHeight=h;
     logicalW=w;logicalH=h;  // remember what the sketch requested
@@ -830,7 +835,7 @@ void PApplet::size(int w,int h){
     }
 }
 void PApplet::size(int w,int h,int renderer){
-    defaultP3D=(renderer==P3D);
+    defaultP3D=(renderer==P3D); g_cppRendererKind=renderer;  /* cppmode-java2dfill */
 #ifdef CPPMODE_BACKEND_LIBPROCESSING
     // P3D gets libprocessing's 3D camera (Java's P3D defaults: 60 degree fov,
     // camera in front of the sketch). Without it, the 2D camera clips anything behind z = 0.
@@ -2130,6 +2135,8 @@ void PApplet::endShape(int mode){
             applyFill();
             // cppmode-vertexfill: each vertex keeps the fill it was given, like Java
             bool perVertex = shapeCols.size() == shapeVerts3D.size();
+            bool flatJava2D = perVertex && !cppBlendsVertexColors();
+            if (flatJava2D) glShadeModel(GL_FLAT);  // each primitive takes its last vertex's color
             glBegin(gm);
             for (size_t i = 0; i < shapeVerts3D.size(); i++) {
                 if (perVertex) { const auto& k = shapeCols[i]; glColor4f(k[0], k[1], k[2], k[3]); }
@@ -2138,6 +2145,7 @@ void PApplet::endShape(int mode){
             }
             glEnd();
             if (perVertex) applyFill();
+            if (flatJava2D) glShadeModel(GL_SMOOTH);
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
         // POINTS and LINES use stroke color drawn directly
@@ -2265,7 +2273,7 @@ void PApplet::endShape(int mode){
             glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
             applyFill();
             // cppmode-polyfill: each vertex keeps the fill it was given, blended across the shape like Java
-            bool perVertex = shapeCols.size() == shapeVerts3D.size();
+            bool perVertex = shapeCols.size() == shapeVerts3D.size() && cppBlendsVertexColors();
             glBegin(GL_TRIANGLE_FAN);
             for (size_t i = 0; i < shapeVerts3D.size(); i++) {
                 if (perVertex) { const auto& k = shapeCols[i]; glColor4f(k[0], k[1], k[2], k[3]); }
