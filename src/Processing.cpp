@@ -2260,9 +2260,16 @@ void PApplet::endShape(int mode){
             glStencilFunc(GL_NOTEQUAL, 0, ~0);
             glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
             applyFill();
+            // cppmode-polyfill: each vertex keeps the fill it was given, blended across the shape like Java
+            bool perVertex = shapeCols.size() == shapeVerts3D.size();
             glBegin(GL_TRIANGLE_FAN);
-            for(auto& v : shapeVerts3D) glVertex3f(v[0], v[1], v[2]);
+            for (size_t i = 0; i < shapeVerts3D.size(); i++) {
+                if (perVertex) { const auto& k = shapeCols[i]; glColor4f(k[0], k[1], k[2], k[3]); }
+                const auto& v = shapeVerts3D[i];
+                glVertex3f(v[0], v[1], v[2]);
+            }
             glEnd();
+            if (perVertex) applyFill();
             glDisable(GL_STENCIL_TEST);
         }
         if(doStroke){
