@@ -205,9 +205,8 @@ def is_libprocessing_dir(path):
     parts = os.path.relpath(path, CPPMODE_DIR).split(os.sep)
     return len(parts) == 3 and parts[0] == "libs" and parts[2] == "libprocessing"
 
-def build_zip(version, gl_only=False):
-    # CppMode.zip has everything; CppMode-lite.zip leaves out the libprocessing renderer
-    base = "CppMode-lite" if gl_only else "CppMode"
+def build_zip(version):
+    base = "CppMode"
     zip_name = f"{base}.zip"  # stable name; the version is in mode.properties and CppMode.txt
     zip_path = os.path.join(OUTPUT_DIR, zip_name)
     if os.path.exists(zip_path):
@@ -217,8 +216,7 @@ def build_zip(version, gl_only=False):
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, dirs, files in os.walk(CPPMODE_DIR):
             dirs[:] = [d for d in dirs
-                       if not should_prune_dir(os.path.join(root, d))
-                       and not (gl_only and is_libprocessing_dir(os.path.join(root, d)))]
+                       if not should_prune_dir(os.path.join(root, d))]
             rel_dir = os.path.relpath(root, CPPMODE_DIR)
             kept_any = any(
                 not should_skip_file(os.path.join(root, f)) for f in files)
@@ -273,8 +271,7 @@ def main():
     if fetch.returncode != 0:
         log("  ERROR: couldn't fetch libprocessing; not building the release zips"); sys.exit(1)
 
-    build_zip(version)                # CppMode.zip: everything
-    build_zip(version, gl_only=True)  # CppMode-lite.zip: without libprocessing
+    build_zip(version)  # CppMode.zip: everything, including the libprocessing renderer
 
 if __name__ == "__main__":
     main()

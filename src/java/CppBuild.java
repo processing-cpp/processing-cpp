@@ -349,8 +349,7 @@ public class CppBuild {
       if (!lpMissingReported) {
         lpMissingReported = true;
         System.err.println("[CppMode] The libprocessing renderer is selected, but its library (" + lpLibName()
-            + ") wasn't found in libs/" + lpPlatform() + "/libprocessing or ~/lp-fork. Using OpenGL. "
-            + "The libprocessing renderer comes with CppMode.zip (the CppMode-lite download leaves it out).");
+            + ") wasn't found in libs/" + lpPlatform() + "/libprocessing or ~/lp-fork. Using OpenGL.");
       }
       return false;
     }
