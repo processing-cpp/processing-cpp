@@ -37,13 +37,7 @@ void draw() {
 
   // Edge detection should be done on a grayscale image.
   //  Create a copy of the source image, and convert to gray.
-  // PImage's copy CONSTRUCTOR is deleted (see E0002 in Processing.h --
-  // it owns a GPU texture, so value-style copying isn't supported), but
-  // PImage::copy() is a real method that duplicates the whole image into
-  // an independent PImage. It returns by value, so wrap it in `new` to
-  // fit this codebase's PImage* convention -- the move constructor
-  // handles the transfer, no pixel data is copied twice.
-  PImage* grayImg = new PImage(img->copy());
+  PImage* grayImg = img->copy();
   grayImg->filter(GRAY);
   // grayImg->filter(BLUR);
 
