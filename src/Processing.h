@@ -4040,17 +4040,32 @@ public:
     float mtx[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
     bool  hasMtx = false;
     // a group passes its transform on to its children, outermost, the way Java moves their geometry
-    void mtxPre(const float* t) {
-        for (size_t i = 0; i < children.size(); i++) {
-            children[i].mtxPre(t);
-            PShape* o = liveChild(i);
-            if (o != &children[i]) o->mtxPre(t);
-        }
+    // cppmode-everything: what groups do to a shape (geo) is kept apart from its own transforms
+    // (mtx), so its own resetMatrix() leaves the group's changes in place, like Java
+    float geo[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    bool  hasGeo = false;
+    static void mtxLeft(float* m, const float* t) {
         float r[16];
         for (int col = 0; col < 4; col++) for (int row = 0; row < 4; row++) {
-            float s2 = 0; for (int k = 0; k < 4; k++) s2 += t[k * 4 + row] * mtx[col * 4 + k];
+            float s2 = 0; for (int k = 0; k < 4; k++) s2 += t[k * 4 + row] * m[col * 4 + k];
             r[col * 4 + row] = s2; }
-        for (int i = 0; i < 16; i++) mtx[i] = r[i];
+        for (int i = 0; i < 16; i++) m[i] = r[i];
+    }
+    void applyGeo(const float* t) {
+        if (children.empty()) { mtxLeft(geo, t); hasGeo = true; return; }
+        for (size_t i = 0; i < children.size(); i++) {
+            children[i].applyGeo(t);
+            PShape* o = liveChild(i);
+            if (o != &children[i]) o->applyGeo(t);
+        }
+    }
+    void mtxPre(const float* t) {
+        for (size_t i = 0; i < children.size(); i++) {
+            children[i].applyGeo(t);
+            PShape* o = liveChild(i);
+            if (o != &children[i]) o->applyGeo(t);
+        }
+        mtxLeft(mtx, t);
         hasMtx = true;
     }
     static bool mtxInvert(const float* m, float* out) {

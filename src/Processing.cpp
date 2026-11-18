@@ -1203,7 +1203,7 @@ void PApplet::tint(const PColor& c)      { tint(c.r, c.g, c.b, c.a); }
 static inline uint8_t lpShapeMode(int m) { return m == CENTER ? 2 : m == RADIUS ? 3 : (uint8_t)m; }
 static inline uint8_t lpArcMode(int m)   { return m == PIE ? 2 : m == CHORD ? 1 : 0; }
 void PApplet::rectMode(int m)    {currentRectMode=m;
-    if(_backend) processing_rect_mode(_backend->graphics_id(),lpShapeMode(m));}
+    if(_backend) processing_rect_mode(_backend->graphics_id(),lpShapeMode(CORNER));}  /* cppmode-everything: CppMode converted the coordinates already */
 void PApplet::ellipseMode(int m) {currentEllipseMode=m;
     if(_backend) processing_ellipse_mode(_backend->graphics_id(),lpShapeMode(m));}
 
@@ -6141,9 +6141,11 @@ PShape PApplet::makePrimShape(int kind, ::std::vector<float> p) {
     s.prim = kind;
     s.params = ::std::move(p);
     // like Java, a primitive takes the sketch's fill and stroke when it is created
-    s.hasFill = doFill;   s.fillR = fillR; s.fillG = fillG; s.fillB = fillB; s.fillA = fillA;
-    s.hasStroke = doStroke; s.strokeR = strokeR; s.strokeG = strokeG; s.strokeB = strokeB; s.strokeA = strokeA;
-    s.strokeW = strokeW;
+    // cppmode-everything: like Java, a primitive starts with the default style (white fill, black
+    // 1px outline), not the current one; sketches style it with setFill()/setStroke()
+    s.hasFill = true;   s.fillR = 1; s.fillG = 1; s.fillB = 1; s.fillA = 1;
+    s.hasStroke = true; s.strokeR = 0; s.strokeG = 0; s.strokeB = 0; s.strokeA = 1;
+    s.strokeW = 1;
     s.styleEnabled = true;
     return s;
 }
@@ -6706,6 +6708,7 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
         bool se = s.styleEnabled && parentStyleEnabled;
         pushMatrix();
         translate(x, y);
+        if (s.hasGeo) { if (_backend) _backend->apply_matrix(s.geo); else glMultMatrixf(s.geo); }
         if (s.hasMtx) { if (_backend) _backend->apply_matrix(s.mtx); else glMultMatrixf(s.mtx); }
         pushStyle();
         if (se) {
@@ -6745,6 +6748,7 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
             if (vbW > 1) scale(w / vbW, h / vbH);
             else if (s.width > 0 && s.height > 0) scale(w / s.width, h / s.height);  // cppmode-pshapesize
         }
+        if (s.hasGeo) _backend->apply_matrix(s.geo);
         if (s.hasMtx && s.children.empty()) _backend->apply_matrix(s.mtx);  // cppmode-pshapematrix
         for (size_t ci = 0; ci < s.children.size(); ci++) drawPShape(s.childAt(ci), 0, 0, -1, -1, se);  // cppmode-javashare
         int n = (int)s.verts.size();
@@ -6827,6 +6831,7 @@ void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool pa
         // cppmode-pshapesize: like Java, the shape ends up w x h, so scale by w / width
         else if(s.width>0&&s.height>0) glScalef(w/s.width,h/s.height,1);
     }
+    if(s.hasGeo) glMultMatrixf(s.geo);
     if(s.hasMtx && s.children.empty()) glMultMatrixf(s.mtx);  // cppmode-pshapematrix (a group's is in its children)
     for(size_t ci=0;ci<s.children.size();ci++) drawPShape(s.childAt(ci),0,0,-1,-1,se);  // cppmode-javashare
     if(!s.verts.empty()){
