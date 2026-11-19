@@ -80,240 +80,68 @@ public class CppExport {
     }
   }
 
+  /** Our target for a platform in the shared Export Application dialog. */
+  private static ExportTarget of(ExportDialog.Target t) {
+    switch (t) {
+      case WINDOWS_X64: return ExportTarget.WINDOWS_X64;
+      case MACOS_X64:   return ExportTarget.MACOS_X64;
+      case MACOS_ARM64: return ExportTarget.MACOS_ARM64;
+      case LINUX_X64:   return ExportTarget.LINUX_X64;
+      case LINUX_ARM64: return ExportTarget.LINUX_ARM64;
+      default:          return ExportTarget.LINUX_ARM32;
+    }
+  }
+
+  /** where exports go (the dialog's Export to), and whether Linux gets an AppImage */
+  private File exportTo;
+  private boolean appImageWanted = true;
+
+  /**
+   * Export Application, with the same dialog as the other modes (Lua, Rust,
+   * Scheme): platforms (greyed out with what's missing, and an Install button
+   * for the compiler), renderer, icon, where it goes, and the AppImage.
+   */
   public void showExportDialog(Sketch sketch, RunnerListener listener) {
-    java.util.Map<ExportTarget,Boolean> avail = new java.util.LinkedHashMap<>();
-    for (ExportTarget t : ExportTarget.values()) avail.put(t, compilerExists(t));
-
-    String os = System.getProperty("os.name","").toLowerCase();
-    boolean isWin = os.contains("win");
-    java.awt.Color bg    = new java.awt.Color(28,30,38);
-    java.awt.Color bgRow = new java.awt.Color(35,37,48);
-    java.awt.Color green = new java.awt.Color(100,220,120);
-    java.awt.Color red   = new java.awt.Color(240,80,80);
-    java.awt.Color blue  = new java.awt.Color(210,228,255);
-
-    javax.swing.JDialog dlg = new javax.swing.JDialog((java.awt.Frame)null,"Export Application",true);
-    dlg.setLayout(new java.awt.BorderLayout(8,8));
-    dlg.getContentPane().setBackground(bg);
-
-    // ââ Title ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JLabel title = new javax.swing.JLabel("  Export Application");
-    title.setForeground(blue);
-    title.setFont(title.getFont().deriveFont(java.awt.Font.BOLD,15f));
-    title.setBorder(javax.swing.BorderFactory.createEmptyBorder(14,8,4,8));
-    dlg.add(title, java.awt.BorderLayout.NORTH);
-
-    javax.swing.JPanel center = new javax.swing.JPanel(new java.awt.BorderLayout(4,6));
-    center.setBackground(bg);
-    center.setBorder(javax.swing.BorderFactory.createEmptyBorder(0,14,4,14));
-
-    // ââ Icon picker ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JPanel iconPanel = new javax.swing.JPanel(new java.awt.BorderLayout(6,4));
-    iconPanel.setBackground(bg);
-    iconPanel.setBorder(javax.swing.BorderFactory.createEmptyBorder(4,0,8,0));
-
-    // Top row: label + hint
-    javax.swing.JPanel iconTop = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT,4,0));
-    iconTop.setBackground(bg);
-    javax.swing.JLabel iconLbl = new javax.swing.JLabel("App Icon (PNG)  ");
-    iconLbl.setForeground(blue);
-    iconLbl.setFont(iconLbl.getFont().deriveFont(java.awt.Font.BOLD, 12f));
-    javax.swing.JLabel iconHint = new javax.swing.JLabel("optional Â· 256Ã256 recommended Â· leave blank to skip");
-    iconHint.setForeground(new java.awt.Color(110,115,150));
-    iconHint.setFont(iconHint.getFont().deriveFont(10f));
-    iconTop.add(iconLbl); iconTop.add(iconHint);
-    iconPanel.add(iconTop, java.awt.BorderLayout.NORTH);
-
-    // Bottom row: preview + path field + buttons
-    javax.swing.JPanel iconBottom = new javax.swing.JPanel(new java.awt.BorderLayout(6,0));
-    iconBottom.setBackground(bg);
-
-    // Icon preview label (shows thumbnail)
-    javax.swing.JLabel iconPreview = new javax.swing.JLabel();
-    iconPreview.setPreferredSize(new java.awt.Dimension(48,48));
-    iconPreview.setOpaque(true);
-    iconPreview.setBackground(new java.awt.Color(40,42,55));
-    iconPreview.setBorder(javax.swing.BorderFactory.createLineBorder(new java.awt.Color(60,65,90)));
-    iconPreview.setHorizontalAlignment(javax.swing.JLabel.CENTER);
-    iconBottom.add(iconPreview, java.awt.BorderLayout.WEST);
-
-    // Path field - read only, updated by file chooser
-    javax.swing.JTextField iconField = new javax.swing.JTextField();
-    iconField.setBackground(new java.awt.Color(40,42,55));
-    iconField.setForeground(blue); iconField.setCaretColor(blue);
-    iconField.setBorder(javax.swing.BorderFactory.createCompoundBorder(
-      javax.swing.BorderFactory.createLineBorder(new java.awt.Color(60,65,90)),
-      javax.swing.BorderFactory.createEmptyBorder(2,6,2,6)));
-    iconField.setFont(iconField.getFont().deriveFont(11f));
-
-    // Helper to update preview
-    Runnable[] updatePreview = {null};
-    updatePreview[0] = () -> {
-      String p = iconField.getText().trim();
-      if (!p.isEmpty() && new File(p).exists()) {
-        try {
-          java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new File(p));
-          if (img != null) {
-            java.awt.Image scaled = img.getScaledInstance(44, 44, java.awt.Image.SCALE_SMOOTH);
-            iconPreview.setIcon(new javax.swing.ImageIcon(scaled));
-            iconPreview.setText("");
-          }
-        } catch (Exception ignored) { iconPreview.setIcon(null); iconPreview.setText("?"); }
-      } else {
-        iconPreview.setIcon(null);
-        iconPreview.setText(p.isEmpty() ? "none" : "!");
-        iconPreview.setForeground(new java.awt.Color(120,125,155));
-      }
-    };
-
-    // Pre-fill if sketch has icon.png
-    for (String p : new String[]{"icon.png","data/icon.png"}) {
-      File ic = new File(sketch.getFolder(), p);
-      if (ic.exists()) { iconField.setText(ic.getAbsolutePath()); break; }
-    }
-    updatePreview[0].run();
-
-    // Buttons panel
-    javax.swing.JPanel iconBtns = new javax.swing.JPanel(new java.awt.GridLayout(2,1,2,2));
-    iconBtns.setBackground(bg);
-
-    javax.swing.JButton iconBrowse = new javax.swing.JButton("Browse...");
-    iconBrowse.setFont(iconBrowse.getFont().deriveFont(11f));
-    iconBrowse.addActionListener(e -> {
-      javax.swing.JFileChooser fc = new javax.swing.JFileChooser(
-        iconField.getText().isEmpty() ? sketch.getFolder().getAbsolutePath()
-          : new File(iconField.getText()).getParent());
-      fc.setDialogTitle("Select App Icon (PNG)");
-      fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("PNG Images (*.png)","png"));
-      fc.setFileSelectionMode(javax.swing.JFileChooser.FILES_ONLY);
-      fc.setPreferredSize(new java.awt.Dimension(700, 500));
-      if (fc.showOpenDialog(dlg) == javax.swing.JFileChooser.APPROVE_OPTION) {
-        iconField.setText(fc.getSelectedFile().getAbsolutePath());
-        updatePreview[0].run();
-      }
-    });
-
-    javax.swing.JButton iconClear = new javax.swing.JButton("Clear");
-    iconClear.setFont(iconClear.getFont().deriveFont(11f));
-    iconClear.setForeground(new java.awt.Color(180,80,80));
-    iconClear.addActionListener(e -> {
-      iconField.setText("");
-      updatePreview[0].run();
-    });
-
-    iconBtns.add(iconBrowse); iconBtns.add(iconClear);
-    iconBottom.add(iconField, java.awt.BorderLayout.CENTER);
-    iconBottom.add(iconBtns, java.awt.BorderLayout.EAST);
-    iconPanel.add(iconBottom, java.awt.BorderLayout.CENTER);
-    center.add(iconPanel, java.awt.BorderLayout.NORTH);
-
-    // ââ Target checkboxes ââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JPanel targets = new javax.swing.JPanel();
-    targets.setLayout(new javax.swing.BoxLayout(targets, javax.swing.BoxLayout.Y_AXIS));
-    targets.setBackground(bg);
-    java.util.Map<ExportTarget,javax.swing.JCheckBox> boxes = new java.util.LinkedHashMap<>();
-
-    for (ExportTarget t : ExportTarget.values()) {
-      // Show all targets everywhere - unavailable ones shown grayed out
-      boolean ok = avail.getOrDefault(t, false);
-      boolean isMac = t==ExportTarget.MACOS_X64 || t==ExportTarget.MACOS_ARM64;
-
-      javax.swing.JPanel row = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT,5,2));
-      row.setBackground(bgRow);
-      row.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 34));
-
-      javax.swing.JCheckBox cb = new javax.swing.JCheckBox(t.label);
-      cb.setBackground(bgRow); cb.setEnabled(ok);
-      cb.setForeground(ok ? blue : red);
-      if (!ok) cb.setFont(cb.getFont().deriveFont(java.awt.Font.ITALIC));
-      cb.setSelected(ok && (
-        (isWin && t==ExportTarget.WINDOWS_X64) ||
-        (!isWin && (t==ExportTarget.LINUX_X64 || t==ExportTarget.WINDOWS_X64))));
-      if (isMac && ok) cb.addActionListener(e -> {
-        if (cb.isSelected()) javax.swing.JOptionPane.showMessageDialog(dlg,
-          "<html><b>macOS export</b> requires <b>osxcross</b> on your PATH.<br>"+
-          "This may take several minutes to compile.<br>"+
-          "If osxcross is not installed, export will fail.</html>",
-          "macOS Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
-      });
-      row.add(cb);
-      boxes.put(t, cb);
-
-      javax.swing.JLabel statusLbl = new javax.swing.JLabel(ok ? "â" : "â not found");
-      statusLbl.setForeground(ok ? green : red);
-      statusLbl.setFont(statusLbl.getFont().deriveFont(10f));
-      row.add(statusLbl);
-
-      if (!ok) {
-        javax.swing.JButton installBtn = new javax.swing.JButton("Install");
-        installBtn.setBackground(new java.awt.Color(50,80,150));
-        installBtn.setForeground(java.awt.Color.WHITE);
-        installBtn.setFont(installBtn.getFont().deriveFont(10f));
-        installBtn.setMargin(new java.awt.Insets(1,6,1,6));
-        final ExportTarget ft=t; final javax.swing.JCheckBox fcb=cb;
-        final javax.swing.JLabel fsl=statusLbl;
-        installBtn.addActionListener(e -> {
-          installBtn.setText("Installing...");
-          installBtn.setEnabled(false);
-          new Thread(() -> {
-            boolean ok2 = installCompilerForTarget(ft, listener);
-            javax.swing.SwingUtilities.invokeLater(() -> {
-              if (ok2 && compilerExists(ft)) {
-                fcb.setEnabled(true); fcb.setForeground(blue);
-                fcb.setFont(fcb.getFont().deriveFont(java.awt.Font.PLAIN));
-                fsl.setText("â ready"); fsl.setForeground(green);
-                installBtn.setText("â Done");
-                installBtn.setBackground(new java.awt.Color(40,110,55));
-              } else {
-                installBtn.setText("Retry"); installBtn.setEnabled(true);
-                fsl.setText("â failed");
-              }
-            });
-          }).start();
-        });
-        row.add(installBtn);
-        String hint = getInstallHint(t);
-        if (!hint.isEmpty()) {
-          javax.swing.JLabel hl = new javax.swing.JLabel("  " + hint);
-          hl.setForeground(new java.awt.Color(110,115,145));
-          hl.setFont(hl.getFont().deriveFont(9f));
-          row.add(hl);
+    String current = build.useLibProcessing() ? "libprocessing" : "OpenGL";
+    ExportDialog.Target[] shown = {
+      ExportDialog.Target.WINDOWS_X64, ExportDialog.Target.MACOS_X64, ExportDialog.Target.MACOS_ARM64,
+      ExportDialog.Target.LINUX_X64, ExportDialog.Target.LINUX_ARM64, ExportDialog.Target.LINUX_ARM32 };
+    ExportDialog.Choice choice = ExportDialog.show(null, sketch.getFolder(),
+      new String[] { "OpenGL", "libprocessing" }, current,
+      (t, r) -> {
+        ExportTarget et = of(t);
+        if ("libprocessing".equals(r) && et != ExportTarget.LINUX_X64)
+          return "libprocessing: Linux 64-bit for now";
+        if (!compilerExists(et)) {
+          String hint = getInstallHint(et);
+          if (hint.startsWith("requires")) return "export from a Linux machine";
+          if (et == ExportTarget.MACOS_X64 || et == ExportTarget.MACOS_ARM64) return "needs osxcross";
+          if (et == ExportTarget.WINDOWS_X64) return "needs MinGW";
+          return "needs its compiler (" + hint.replace("downloads ", "") + ")";
         }
-      }
-      targets.add(row);
-      targets.add(javax.swing.Box.createVerticalStrut(2));
-    }
-
-    javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(targets);
-    scroll.setBorder(null); scroll.getViewport().setBackground(bg);
-    center.add(scroll, java.awt.BorderLayout.CENTER);
-    dlg.add(center, java.awt.BorderLayout.CENTER);
-
-    // ââ Buttons ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    javax.swing.JPanel btnRow = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT,10,10));
-    btnRow.setBackground(bg);
-    javax.swing.JButton cancel = new javax.swing.JButton("Cancel");
-    javax.swing.JButton export = new javax.swing.JButton("Export");
-    export.setBackground(new java.awt.Color(55,95,175)); export.setForeground(java.awt.Color.WHITE);
-    boolean[] go = {false};
-    cancel.addActionListener(e -> dlg.dispose());
-    export.addActionListener(e -> { go[0]=true; dlg.dispose(); });
-    btnRow.add(cancel); btnRow.add(export);
-    dlg.add(btnRow, java.awt.BorderLayout.SOUTH);
-
-    dlg.pack();
-    dlg.setMinimumSize(new java.awt.Dimension(560, 380));
-    dlg.setLocationRelativeTo(null);
-    dlg.setVisible(true);
-    if (!go[0]) return;
-
+        return null;
+      },
+      new ExportDialog.Installer() {
+        public boolean can(ExportDialog.Target t, String r) {
+          return !compilerExists(of(t)) && !("libprocessing".equals(r) && of(t) != ExportTarget.LINUX_X64)
+              && !getInstallHint(of(t)).startsWith("requires");
+        }
+        public void install(ExportDialog.Target t) { installCompilerForTarget(of(t), listener); }
+      }, shown);
+    if (choice == null) return;
     java.util.List<ExportTarget> selected = new java.util.ArrayList<>();
-    for (java.util.Map.Entry<ExportTarget,javax.swing.JCheckBox> e : boxes.entrySet())
-      if (e.getValue().isSelected()) selected.add(e.getKey());
-    if (selected.isEmpty()) return;
-
-    final String iconPath = iconField.getText().trim();
-    new Thread(() -> runExport(sketch, listener, selected, iconPath)).start();
+    for (ExportDialog.Target t : choice.targets) selected.add(of(t));
+    exportTo = choice.outDir;
+    appImageWanted = choice.appImage;
+    final String iconPath = choice.icon == null ? "" : choice.icon.getAbsolutePath();
+    final String renderer = choice.renderer;
+    new Thread(() -> {
+      // the build reads the toolbar's renderer: use the dialog's for this export
+      String toolbar = CppBuild.selectedRenderer;
+      CppBuild.selectedRenderer = renderer;
+      try { runExport(sketch, listener, selected, iconPath); }
+      finally { CppBuild.selectedRenderer = toolbar; }
+    }).start();
   }
 
   private String getInstallHint(ExportTarget t) {
@@ -432,7 +260,7 @@ public class CppExport {
                          java.util.List<ExportTarget> targets, String iconPath) {
     listener.statusNotice("Exporting...");
     String skName = sketch.getName();
-    File outBase = new File(sketch.getFolder().getParentFile(), skName + "-export");
+    File outBase = exportTo != null ? exportTo : new File(sketch.getFolder().getParentFile(), skName + "-export");
     outBase.mkdirs();
     String modeSrc = runtimeDir.getParentFile().getAbsolutePath() + "/src";
 
@@ -645,7 +473,7 @@ public class CppExport {
     else if (t==ExportTarget.MACOS_X64 || t==ExportTarget.MACOS_ARM64) mkAppBundle(dir, skName, binOut, iconPath);
     else {
       // Try to produce an AppImage (single-file, shows icon in Dolphin)
-      boolean madeAppImage = mkAppImage(dir, binName, skName, iconPath, listener);
+      boolean madeAppImage = appImageWanted && mkAppImage(dir, binName, skName, iconPath, listener);
       if (!madeAppImage) mkSh(dir, binName); // fallback to run.sh
     }
 
