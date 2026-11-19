@@ -80,6 +80,37 @@ public class CppExport {
     }
   }
 
+  /** libprocessing's library file for a target platform. */
+  static String lpLibName(ExportTarget t) {
+    if (t.isWindows) return "processing.dll";
+    if (t == ExportTarget.MACOS_X64 || t == ExportTarget.MACOS_ARM64) return "libprocessing.dylib";
+    return "libprocessing.so";
+  }
+
+  /** The folder with libprocessing for a target (libs/<platform>/libprocessing), or null. */
+  File lpDir(ExportTarget t) {
+    File root = runtimeDir.getParentFile();
+    File d = new File(root, "libs/" + t.dirName + "/libprocessing");
+    if (new File(d, lpLibName(t)).isFile()) return d;
+    // your own build of the fork, for this computer
+    if (t.dirName.equals(CppBuild.lpPlatform())) return CppBuild.libProcessingLibDir();
+    return null;
+  }
+
+  /** macOS: the copied libprocessing.dylib says @rpath/libprocessing.dylib (osxcross or Xcode's install_name_tool). */
+  private void setInstallName(ExportTarget t, File dylib) {
+    String tool = System.getProperty("os.name", "").toLowerCase().contains("mac") ? "install_name_tool"
+      : t.compiler.replaceAll("-c\\+\\+$|-clang\\+\\+$|-g\\+\\+$", "") + "-install_name_tool";
+    try {
+      Process p = new ProcessBuilder(tool, "-id", "@rpath/" + dylib.getName(), dylib.getAbsolutePath())
+        .redirectErrorStream(true).start();
+      p.getInputStream().transferTo(System.out);
+      if (p.waitFor() != 0) System.err.println("[export] " + tool + " failed; the app may not find libprocessing");
+    } catch (Exception e) {
+      System.err.println("[export] no " + tool + " (" + e.getMessage() + "); the app may not find libprocessing");
+    }
+  }
+
   /** Our target for a platform in the shared Export Application dialog. */
   private static ExportTarget of(ExportDialog.Target t) {
     switch (t) {
@@ -110,8 +141,8 @@ public class CppExport {
       new String[] { "OpenGL", "libprocessing" }, current,
       (t, r) -> {
         ExportTarget et = of(t);
-        if ("libprocessing".equals(r) && et != ExportTarget.LINUX_X64)
-          return "libprocessing: Linux 64-bit for now";
+        if ("libprocessing".equals(r) && lpDir(et) == null)
+          return "no libprocessing library for it in this copy";
         if (!compilerExists(et)) {
           String hint = getInstallHint(et);
           if (hint.startsWith("requires")) return "export from a Linux machine";
@@ -123,7 +154,7 @@ public class CppExport {
       },
       new ExportDialog.Installer() {
         public boolean can(ExportDialog.Target t, String r) {
-          return !compilerExists(of(t)) && !("libprocessing".equals(r) && of(t) != ExportTarget.LINUX_X64)
+          return !compilerExists(of(t)) && !("libprocessing".equals(r) && lpDir(of(t)) == null)
               && !getInstallHint(of(t)).startsWith("requires");
         }
         public void install(ExportDialog.Target t) { installCompilerForTarget(of(t), listener); }
@@ -332,12 +363,12 @@ public class CppExport {
                             File outBase, String modeSrc, String skName,
                             java.util.List<File> sources,
                             RunnerListener listener, String iconPath) throws Exception {
-    // cppmode-lpexport: libprocessing only where its library exists for the target (Linux x64 for now)
-    File lpLibDir = CppBuild.libProcessingLibDir();
-    boolean lpExport = build.useLibProcessing() && t.name().equals("LINUX_X64")
-        && CppBuild.lpPlatform().equals("linux-x64") && lpLibDir != null;
+    // cppmode-lpexport: libprocessing for every platform whose library the mode
+    // has (libs/<platform>/libprocessing, from the fork's release), from any computer
+    File lpLibDir = lpDir(t);
+    boolean lpExport = build.useLibProcessing() && lpLibDir != null;
     if (build.useLibProcessing() && !lpExport)
-      System.err.println("[export] " + t.name() + ": no libprocessing library for this target, exporting it with OpenGL");
+      throw new Exception("there's no libprocessing library for " + t.label + " in this copy of C++ Mode");
     File dir = new File(outBase, t.dirName); dir.mkdirs();
     String binName = skName + (t.isWindows ? ".exe" : "");
     File binOut = new File(dir, binName);
@@ -371,21 +402,16 @@ public class CppExport {
     cmd.add("-std=" + CppBuild.bestCppStd(t.compiler)); cmd.add("-O2");
     if (lpExport) {
       cmd.add("-DCPPMODE_BACKEND_LIBPROCESSING");
-      for (File inc : CppBuild.libProcessingIncludes()) cmd.add("-I" + inc.getAbsolutePath());
+      // its header folder first: macOS and Windows don't tell processing.h from Processing.h
+      File inc = new File(lpLibDir, "include");
+      if (!new File(inc, "processing.h").isFile()) inc = new File(runtimeDir.getParentFile(), "libs/linux-x64/libprocessing/include");
+      cmd.add("-I" + inc.getAbsolutePath());
     }
     for (File s : sources) cmd.add(s.getAbsolutePath());
     // Use pre-built cached .o if available for this target
-    String exportCacheDir = t.isWindows ? "cache/windows-x64"
-      : (t == ExportTarget.LINUX_ARM64 ? "cache/linux-arm64"
-      : (t == ExportTarget.LINUX_ARM32 ? "cache/linux-arm32"
-      : "cache/linux-x64"));
-    if (lpExport) {
-      exportCacheDir += "-libprocessing";
-      if (!new File(runtimeDir.getParentFile(), exportCacheDir + "/Processing.o").exists()) {
-        listener.statusError("Run the sketch once with the libprocessing renderer before exporting it, so its build cache exists.");
-        return;
-      }
-    }
+    // the target's own precompiled objects (CI builds them for every platform);
+    // without them Processing.cpp is compiled for the target here
+    String exportCacheDir = "cache/" + t.dirName + (lpExport ? "-libprocessing" : "");
     File exportCache = new File(runtimeDir.getParentFile(), exportCacheDir);
     File cachedProcessingO = new File(exportCache, "Processing.o");
     File cachedDefaultsO   = new File(exportCache, "Processing_defaults.o");
@@ -450,12 +476,18 @@ public class CppExport {
     cmd.add("-o"); cmd.add(binOut.getAbsolutePath());
 
     System.out.println("$ " + String.join(" ", cmd));
+    File lpCopy = null;
     if (lpExport) {
-      cmd.add("-L" + lpLibDir.getAbsolutePath());
-      cmd.add("-Wl,-rpath,$ORIGIN");
-      cmd.add("-lprocessing");
+      // the library goes next to the program, and the program finds it there
+      String lib = lpLibName(t);
       dir.mkdirs();
-      copyFile(new File(lpLibDir, CppBuild.lpLibName()), new File(dir, CppBuild.lpLibName()));
+      lpCopy = new File(dir, lib);
+      copyFile(new File(lpLibDir, lib), lpCopy);
+      boolean mac = t == ExportTarget.MACOS_X64 || t == ExportTarget.MACOS_ARM64;
+      if (mac) setInstallName(t, lpCopy);   // @rpath, not the path it was built at
+      cmd.add("-L" + dir.getAbsolutePath());
+      if (!t.isWindows) cmd.add(mac ? "-Wl,-rpath,@executable_path" : "-Wl,-rpath,$ORIGIN");
+      cmd.add("-lprocessing");
     }
     ProcessBuilder pb = new ProcessBuilder(cmd);
     pb.redirectErrorStream(true);
@@ -470,7 +502,11 @@ public class CppExport {
 
     // Post-build
     if (t.isWindows) { mkBat(dir, binName); } // no DLLs needed - statically linked
-    else if (t==ExportTarget.MACOS_X64 || t==ExportTarget.MACOS_ARM64) mkAppBundle(dir, skName, binOut, iconPath);
+    else if (t==ExportTarget.MACOS_X64 || t==ExportTarget.MACOS_ARM64) {
+      mkAppBundle(dir, skName, binOut, iconPath);
+      // the program sits in Contents/MacOS: libprocessing goes next to it there
+      if (lpCopy != null) lpCopy.renameTo(new File(dir, skName + ".app/Contents/MacOS/" + lpCopy.getName()));
+    }
     else {
       // Try to produce an AppImage (single-file, shows icon in Dolphin)
       boolean madeAppImage = appImageWanted && mkAppImage(dir, binName, skName, iconPath, listener);
