@@ -225,7 +225,9 @@ jobs:
         run: |
           mkdir -p cache/macos-x64
           BREW=$(brew --prefix)
-          FLAGS="-std=c++2c -O2 -w -target x86_64-apple-macos10.13 -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $BREW/include"
+          # 13.3: std::to_chars for floats (used in Processing.h) needs it, and
+          # std::filesystem needs 10.15. Intel Macs from 2017 on run macOS 13.
+          FLAGS="-std=c++2c -O2 -w -target x86_64-apple-macos13.3 -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $BREW/include"
 
 
           echo "Building Processing.o..."
@@ -253,7 +255,7 @@ jobs:
           D=cache/macos-x64-libprocessing; mkdir -p "$D"
           H=libs/macos-x64/libprocessing/include
           [ -f "$H/processing.h" ] || H=libs/linux-x64/libprocessing/include
-          FLAGS="-I $H -std=c++2c -O2 -w -target x86_64-apple-macos10.13 -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include"
+          FLAGS="-I $H -std=c++2c -O2 -w -target x86_64-apple-macos13.3 -DPROCESSING_HAS_STB_IMAGE -DPROCESSING_HAS_STB_TRUETYPE -I src -I $(brew --prefix)/include -DCPPMODE_BACKEND_LIBPROCESSING -I libs/include"
           g++ $FLAGS -c src/Processing.cpp -o "$D/Processing.o"
           g++ $FLAGS -c src/Processing_defaults.cpp -o "$D/Processing_defaults.o"
           ls -lh "$D"
