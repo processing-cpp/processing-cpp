@@ -13,6 +13,7 @@ named CppMode-<version>.zip (e.g. CppMode-0.2.0.zip).
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -25,7 +26,7 @@ import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-REPO         = "processing-cpp/processing.cpp"
+REPO         = os.environ.get("GITHUB_REPOSITORY") or "processing-cpp/processing-cpp"
 CPPMODE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR   = os.path.dirname(CPPMODE_DIR)
 
@@ -58,13 +59,18 @@ def bump_version_files(tag):
         new_lines = []
         for line in lines:
             if line.startswith("version="):
+                # the same rule as the other modes: 1.2.3 -> 10203, so a
+                # later version always has a higher number (the Contribution
+                # Manager compares this one), and never lower than before
                 try:
                     current = int(line.strip().split("=", 1)[1])
                 except ValueError:
                     current = 0
-                new_lines.append(f"version={current + 1}\n")
+                nums = (re.findall(r"\d+", tag.lstrip("v")) + ["0", "0", "0"])[:3]
+                number = int(nums[0]) * 10000 + int(nums[1]) * 100 + int(nums[2])
+                new_lines.append(f"version={max(number, current + 1)}\n")
             elif line.startswith(pretty_key + "="):
-                new_lines.append(f"{pretty_key}={tag}\n")
+                new_lines.append(f"{pretty_key}={tag.lstrip('v')}\n")
             else:
                 new_lines.append(line)
         with open(path, "w") as f:

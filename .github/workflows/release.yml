@@ -1,0 +1,53 @@
+name: Release
+
+# Pushing a v* tag makes the release: scripts/create-release.py runs the
+# cache and tree-sitter workflows, fetches libprocessing for every platform,
+# sets the version from the tag (v1.2.3 -> prettyVersion=1.2.3, version=10203)
+# and zips CppMode.zip. It goes up with CppMode.txt as a draft release, which
+# you publish with: gh release edit <tag> --draft=false
+# (repository variable RELEASE_DIRECT=true publishes right away). The script
+# still works on your own computer too, for a zip to look at first.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: CppMode.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/create-release.py "${GITHUB_REF_NAME#v}"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DRAFT=--draft; [ "${{ vars.RELEASE_DIRECT }}" = true ] && DRAFT=
+          files="../CppMode.zip CppMode.txt"
+          ls -lh ../CppMode.zip
+          notes="release-notes/$GITHUB_REF_NAME.md"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # up under a temporary name first; the old file goes only once the new one is there
+            for f in $files; do
+              n=$(basename "$f"); tmp="new-$n"; cp "$f" "$RUNNER_TEMP/$tmp"
+              gh release delete-asset "$GITHUB_REF_NAME" "$tmp" -y 2>/dev/null || true
+              gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$tmp"
+              old=$(gh release view "$GITHUB_REF_NAME" --json assets -q ".assets[] | select(.name==\"$n\") | .apiUrl")
+              [ -n "$old" ] && gh api -X DELETE "$old"
+              new=$(gh release view "$GITHUB_REF_NAME" --json assets -q ".assets[] | select(.name==\"$tmp\") | .apiUrl")
+              gh api -X PATCH "$new" -f name="$n" >/dev/null
+            done
+            [ -f "$notes" ] && gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+          elif [ -f "$notes" ]; then
+            gh release create "$GITHUB_REF_NAME" $files --title "C++ Mode ${GITHUB_REF_NAME#v}" --notes-file "$notes" $DRAFT
+          else
+            gh release create "$GITHUB_REF_NAME" $files --title "C++ Mode ${GITHUB_REF_NAME#v}" --generate-notes $DRAFT
+          fi
