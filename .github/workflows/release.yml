@@ -27,12 +27,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/create-release.py "${GITHUB_REF_NAME#v}"
 
+      # the engine on its own, for people not using the Processing IDE: plain
+      # g++ (plug and play) and a CMake package; same engine as CppMode.zip
+      - name: Plug-and-play and CMake packages
+        run: |
+          python3 scripts/generate_plugandplay.py --out "$RUNNER_TEMP/processing-cpp-plugandplay.zip"
+          python3 scripts/generate_cmake.py --out "$RUNNER_TEMP/processing-cpp-cmake.zip"
+          ls -lh "$RUNNER_TEMP"/processing-cpp-*.zip
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           DRAFT=--draft; [ "${{ vars.RELEASE_DIRECT }}" = true ] && DRAFT=
-          files="../CppMode.zip CppMode.txt"
+          files="../CppMode.zip CppMode.txt $RUNNER_TEMP/processing-cpp-plugandplay.zip $RUNNER_TEMP/processing-cpp-cmake.zip"
           ls -lh ../CppMode.zip
           notes="release-notes/$GITHUB_REF_NAME.md"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
