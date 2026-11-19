@@ -46,7 +46,23 @@ def gh(*args, **kwargs):
 
 # ── Version bump ───────────────────────────────────────────────────────────────
 
+def release_number(tag):
+    """version=: one more than the latest published release's (the number the
+    Contribution Manager compares). The same tag built again keeps its number;
+    with no release to read, one more than the file's."""
+    latest = gh("release", "view", "--repo", REPO, "--json", "tagName", "-q", ".tagName").stdout.strip()
+    txt = gh("release", "download", "--repo", REPO, "--pattern", "CppMode.txt", "--output", "-").stdout
+    m = re.search(r"^version=(\d+)", txt, re.M)
+    if m:
+        prev = int(m.group(1))
+        return prev if latest in (tag, "v" + tag.lstrip("v")) else prev + 1
+    here = open(os.path.join(CPPMODE_DIR, "mode.properties")).read()
+    m = re.search(r"^version=(\d+)", here, re.M)
+    return (int(m.group(1)) if m else 0) + 1
+
 def bump_version_files(tag):
+    number = release_number(tag)
+    log(f"version {tag.lstrip('v')}, number {number}")
     targets = [
         (os.path.join(CPPMODE_DIR, "mode.properties"), "prettyVersion"),
         (os.path.join(CPPMODE_DIR, "CppMode.txt"),      "prettyVersion"),
@@ -59,16 +75,7 @@ def bump_version_files(tag):
         new_lines = []
         for line in lines:
             if line.startswith("version="):
-                # the same rule as the other modes: 1.2.3 -> 10203, so a
-                # later version always has a higher number (the Contribution
-                # Manager compares this one), and never lower than before
-                try:
-                    current = int(line.strip().split("=", 1)[1])
-                except ValueError:
-                    current = 0
-                nums = (re.findall(r"\d+", tag.lstrip("v")) + ["0", "0", "0"])[:3]
-                number = int(nums[0]) * 10000 + int(nums[1]) * 100 + int(nums[2])
-                new_lines.append(f"version={max(number, current + 1)}\n")
+                new_lines.append(f"version={number}\n")
             elif line.startswith(pretty_key + "="):
                 new_lines.append(f"{pretty_key}={tag.lstrip('v')}\n")
             else:

@@ -2,7 +2,8 @@ name: Release
 
 # Pushing a v* tag makes the release: scripts/create-release.py runs the
 # cache and tree-sitter workflows, fetches libprocessing for every platform,
-# sets the version from the tag (v1.2.3 -> prettyVersion=1.2.3, version=10203)
+# sets the version from the tag (prettyVersion=1.2.3) and version= to one
+# more than the latest published release's,
 # and zips CppMode.zip. It goes up with CppMode.txt as a draft release, which
 # you publish with: gh release edit <tag> --draft=false
 # (repository variable RELEASE_DIRECT=true publishes right away). The script
