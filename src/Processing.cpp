@@ -6165,11 +6165,9 @@ PShape PApplet::makePrimShape(int kind, ::std::vector<float> p) {
     s.prim = kind;
     s.params = ::std::move(p);
     // like Java, a primitive takes the sketch's fill and stroke when it is created
-    // cppmode-everything: like Java, a primitive starts with the default style (white fill, black
-    // 1px outline), not the current one; sketches style it with setFill()/setStroke()
-    s.hasFill = true;   s.fillR = 1; s.fillG = 1; s.fillB = 1; s.fillA = 1;
-    s.hasStroke = true; s.strokeR = 0; s.strokeG = 0; s.strokeB = 0; s.strokeA = 1;
-    s.strokeW = 1;
+    s.hasFill = doFill;   s.fillR = fillR; s.fillG = fillG; s.fillB = fillB; s.fillA = fillA;
+    s.hasStroke = doStroke; s.strokeR = strokeR; s.strokeG = strokeG; s.strokeB = strokeB; s.strokeA = strokeA;
+    s.strokeW = strokeW;
     s.styleEnabled = true;
     return s;
 }
@@ -6735,8 +6733,51 @@ static void cppGeoScale(const PShape& s, float& sx, float& sy) {
     if (sx <= 0) sx = 1;
     if (sy <= 0) sy = 1;
 }
+// Java's PShapes have their own default material (specular 128 gray, shininess 1, no emission),
+// separate from the sketch's; a front light under lightSpecular() shows it as a wash.
+// The sketch's material comes back after the shape, on every way out.
+struct CppMat { float spec[3]; float shin; float emis[3]; };
+static CppMat cppGetMat() {
+    CppMat m{};
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (PApplet::g_papplet && PApplet::g_papplet->_backend) {
+        for (int i = 0; i < 3; i++) { m.spec[i] = g_lpMatSpec[i]; m.emis[i] = g_lpMatEmis[i]; }
+        m.shin = g_lpMatShin;
+        return m;
+    }
+#endif
+#ifndef __EMSCRIPTEN__
+    float f[4];
+    glGetMaterialfv(GL_FRONT, GL_SPECULAR, f); for (int i = 0; i < 3; i++) m.spec[i] = f[i];
+    glGetMaterialfv(GL_FRONT, GL_SHININESS, f); m.shin = f[0];
+    glGetMaterialfv(GL_FRONT, GL_EMISSION, f); for (int i = 0; i < 3; i++) m.emis[i] = f[i];
+#endif
+    return m;
+}
+static void cppSetMat(const CppMat& m) {
+#ifdef CPPMODE_BACKEND_LIBPROCESSING
+    if (PApplet::g_papplet && PApplet::g_papplet->_backend) {
+        for (int i = 0; i < 3; i++) { g_lpMatSpec[i] = m.spec[i]; g_lpMatEmis[i] = m.emis[i]; }
+        g_lpMatShin = m.shin;
+        lpLitRefresh();
+        return;
+    }
+#endif
+#ifndef __EMSCRIPTEN__
+    float s4[4] = {m.spec[0], m.spec[1], m.spec[2], 1}, e4[4] = {m.emis[0], m.emis[1], m.emis[2], 1};
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, s4);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, m.shin);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, e4);
+#endif
+}
+struct CppPShapeMat {
+    CppMat saved;
+    CppPShapeMat() : saved(cppGetMat()) { CppMat ps{{0.5f, 0.5f, 0.5f}, 1.0f, {0, 0, 0}}; cppSetMat(ps); }
+    ~CppPShapeMat() { cppSetMat(saved); }
+};
 void PApplet::drawPShape(const PShape& s,float x,float y,float w,float h,bool parentStyleEnabled){
     if(!s.visible)return;
+    CppPShapeMat pshapeMaterial;  // PShapes use their own material
     if (s.prim) {  // cppmode-pshapeprim
         bool se = s.styleEnabled && parentStyleEnabled;
         pushMatrix();
