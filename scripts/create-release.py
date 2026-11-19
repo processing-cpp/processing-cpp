@@ -195,9 +195,9 @@ def should_prune_dir(path):
     rel   = os.path.relpath(path, CPPMODE_DIR)
     parts = rel.split(os.sep)
     if len(parts) >= 1 and parts[0] in (".git", ".github"): return True
-    if parts[-1] in LOCAL_ONLY_DIRS: return True
-    # cache/<platform>-libprocessing: built on first run on the user's machine, not shipped
-    return len(parts) == 2 and parts[0] == "cache" and parts[1].endswith("-libprocessing")
+    # cache/<platform>-libprocessing ships now: CI builds it for every platform, and
+    # download_all_artifacts replaces whatever was built locally before zipping
+    return parts[-1] in LOCAL_ONLY_DIRS
 
 def should_skip_file(path):
     rel   = os.path.relpath(path, CPPMODE_DIR)
