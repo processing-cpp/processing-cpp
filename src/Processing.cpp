@@ -2866,7 +2866,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     if (length(mesh.world_normal) > 1e-4) { N = normalize(mesh.world_normal); }
     // P3D lights back faces with the flipped normal
     if (dot(N, V) < 0.0) { N = -N; }
-    let fill = plights.fill.rgb;
+    let fill = to_srgb(mesh.color.rgb);  // cppmode-litshare: the shape's fill, from its vertices
     let shin = max(plights.mat_spec.w, 1.0);
     let n = i32(plights.count.x);
     var acc = Acc(vec3(0.0), vec3(0.0), vec3(0.0));
@@ -2881,7 +2881,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let amb_mat = select(fill, plights.mat_ambient.rgb, plights.mat_ambient.w > 0.5);
     let rgb = clamp(acc.amb * amb_mat + acc.dif * fill + acc.spe * plights.mat_spec.rgb
                     + plights.mat_emissive.rgb, vec3(0.0), vec3(1.0));
-    return vec4(to_linear(rgb), plights.fill.a);
+    return vec4(to_linear(rgb), mesh.color.a);
 }
 )WESL";
 static constexpr int LP_MAX_LIGHTS = 8;
@@ -2925,7 +2925,7 @@ static void lpUploadCount(uint64_t m) {
 }
 static uint64_t lpLitMatFor(float r, float g, float b, float a) {
     if (g_lpLitFailed) return 0;
-    ::std::array<float, 15> key{r, g, b, a,
+    ::std::array<float, 15> key{0, 0, 0, a,  // cppmode-litshare: fill comes from the vertices
         g_lpMatSpec[0], g_lpMatSpec[1], g_lpMatSpec[2], g_lpMatShin,
         g_lpMatEmis[0], g_lpMatEmis[1], g_lpMatEmis[2],
         g_lpMatAmb[0], g_lpMatAmb[1], g_lpMatAmb[2], g_lpMatAmbSet ? 1.0f : 0.0f};
@@ -2972,10 +2972,10 @@ static uint64_t lpLitTexMatFor(uint64_t img, float r, float g, float b, float a)
              "@group(3) @binding(0) var<uniform> plights: PLights;\n"
              "@group(3) @binding(1) var tex: texture_2d<f32>;\n"
              "@group(3) @binding(2) var tex_samp: sampler;\n");
-        swap("    let fill = plights.fill.rgb;\n",
+        swap("    let fill = to_srgb(mesh.color.rgb);  // cppmode-litshare: the shape's fill, from its vertices\n",
              "    let texel = textureSample(tex, tex_samp, mesh.uv);\n"
              "    let fill = plights.fill.rgb * to_srgb(texel.rgb);\n");
-        swap("plights.fill.a);", "plights.fill.a * texel.a);");
+        swap("mesh.color.a);", "plights.fill.a * texel.a);");
         g_lpLitTexShader = processing_shader_create(src.c_str());
         if (!g_lpLitTexShader) { const char* e = processing_check_error();
             fprintf(stderr, "[CppMode] lit textures: shader failed to compile: %s\n", e ? e : "(no message)");
